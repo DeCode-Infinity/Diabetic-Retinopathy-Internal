@@ -26,7 +26,7 @@ import {
    - No fake sample presets — only real uploaded images produce results.
 ============================================================================ */
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_URL = "http://localhost:8000"; // point at your ngrok URL if backend isn't local
 
 const GRADE_META = {
   0: {
@@ -68,10 +68,10 @@ const GRADE_META = {
 
 const COLOR_MAP = {
   emerald: { bg: "bg-emerald-500/10", text: "text-emerald-300", border: "border-emerald-500/30", dot: "bg-emerald-400", solid: "bg-emerald-500" },
-  sky: { bg: "bg-sky-500/10", text: "text-sky-300", border: "border-sky-500/30", dot: "bg-sky-400", solid: "bg-sky-500" },
-  amber: { bg: "bg-amber-500/10", text: "text-amber-300", border: "border-amber-500/30", dot: "bg-amber-400", solid: "bg-amber-500" },
-  orange: { bg: "bg-orange-500/10", text: "text-orange-300", border: "border-orange-500/30", dot: "bg-orange-400", solid: "bg-orange-500" },
-  rose: { bg: "bg-rose-500/10", text: "text-rose-300", border: "border-rose-500/30", dot: "bg-rose-400", solid: "bg-rose-500" },
+  sky:     { bg: "bg-sky-500/10",     text: "text-sky-300",     border: "border-sky-500/30",     dot: "bg-sky-400",     solid: "bg-sky-500" },
+  amber:   { bg: "bg-amber-500/10",   text: "text-amber-300",   border: "border-amber-500/30",   dot: "bg-amber-400",   solid: "bg-amber-500" },
+  orange:  { bg: "bg-orange-500/10",  text: "text-orange-300",  border: "border-orange-500/30",  dot: "bg-orange-400",  solid: "bg-orange-500" },
+  rose:    { bg: "bg-rose-500/10",    text: "text-rose-300",    border: "border-rose-500/30",    dot: "bg-rose-400",    solid: "bg-rose-500" },
 };
 
 // Real screening filter — rejects non-fundus uploads before they ever reach
@@ -83,15 +83,15 @@ function checkIsRetina(imgEl) {
   const ctx = cv.getContext("2d");
   ctx.drawImage(imgEl, 0, 0, W, H);
   const { data } = ctx.getImageData(0, 0, W, H);
-  let rSum = 0, gSum = 0, bSum = 0, aSum = 0, cornerDark = 0, n = 0;
-  const corners = [[5, 5], [W - 5, 5], [5, H - 5], [W - 5, H - 5]];
-  for (let y = 0; y < H; y += 4) for (let x = 0; x < W; x += 4) {
-    const i = (y * W + x) * 4; rSum += data[i]; gSum += data[i + 1]; bSum += data[i + 2]; aSum += data[i + 3]; n++;
+  let rSum=0,gSum=0,bSum=0,aSum=0,cornerDark=0,n=0;
+  const corners=[[5,5],[W-5,5],[5,H-5],[W-5,H-5]];
+  for (let y=0;y<H;y+=4) for (let x=0;x<W;x+=4){
+    const i=(y*W+x)*4; rSum+=data[i]; gSum+=data[i+1]; bSum+=data[i+2]; aSum+=data[i+3]; n++;
   }
-  if (aSum / n < 250) return false; // transparent PNGs aren't photos
-  corners.forEach(([x, y]) => { const i = (y * W + x) * 4; if ((data[i] + data[i + 1] + data[i + 2]) / 3 < 40) cornerDark++; });
-  const rAvg = rSum / n, gAvg = gSum / n, bAvg = bSum / n;
-  return (rAvg > gAvg * 1.15 && rAvg > bAvg * 1.3) && cornerDark >= 2;
+  if (aSum/n < 250) return false; // transparent PNGs aren't photos
+  corners.forEach(([x,y])=>{ const i=(y*W+x)*4; if((data[i]+data[i+1]+data[i+2])/3<40) cornerDark++; });
+  const rAvg=rSum/n,gAvg=gSum/n,bAvg=bSum/n;
+  return (rAvg>gAvg*1.15 && rAvg>bAvg*1.3) && cornerDark>=2;
 }
 
 const emptyPatient = {
@@ -185,9 +185,9 @@ export default function AIDRScreen() {
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-              {[["screening", "Screening", Activity], ["report", "Report", FileText], ["queue", `Session Queue (${queue.length})`, Users]].map(([id, label, Icon]) => (
-                <button key={id} onClick={() => setView(id)}
-                  className={`px-3 py-1.5 rounded-md font-semibold flex items-center gap-1.5 transition-all ${view === id ? "bg-teal-500 text-slate-950" : "text-slate-400 hover:text-slate-200"}`}>
+              {[["screening","Screening",Activity],["report","Report",FileText],["queue",`Session Queue (${queue.length})`,Users]].map(([id,label,Icon])=>(
+                <button key={id} onClick={()=>setView(id)}
+                  className={`px-3 py-1.5 rounded-md font-semibold flex items-center gap-1.5 transition-all ${view===id?"bg-teal-500 text-slate-950":"text-slate-400 hover:text-slate-200"}`}>
                   <Icon className="w-3.5 h-3.5" /><span>{label}</span>
                 </button>
               ))}
@@ -212,30 +212,30 @@ export default function AIDRScreen() {
                   <h3 className="text-xs font-bold text-slate-200">Patient Details</h3>
                 </div>
                 <div className="grid grid-cols-5 gap-2 text-xs">
-                  <input value={patient.patient_id} onChange={e => setField("patient_id", e.target.value)} placeholder="ID"
+                  <input value={patient.patient_id} onChange={e=>setField("patient_id",e.target.value)} placeholder="ID"
                     className="col-span-2 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none" />
-                  <input value={patient.patient_name} onChange={e => setField("patient_name", e.target.value)} placeholder="Full name"
+                  <input value={patient.patient_name} onChange={e=>setField("patient_name",e.target.value)} placeholder="Full name"
                     className="col-span-3 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none" />
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="flex gap-1">
-                    <input type="number" value={patient.age} onChange={e => setField("age", e.target.value)} placeholder="Age"
+                    <input type="number" value={patient.age} onChange={e=>setField("age",e.target.value)} placeholder="Age"
                       className="w-1/2 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none" />
-                    <select value={patient.gender} onChange={e => setField("gender", e.target.value)}
+                    <select value={patient.gender} onChange={e=>setField("gender",e.target.value)}
                       className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none">
                       <option>Female</option><option>Male</option><option>Other</option>
                     </select>
                   </div>
-                  <input type="number" step="0.5" value={patient.diabetes_duration_years} onChange={e => setField("diabetes_duration_years", e.target.value)} placeholder="DM years"
+                  <input type="number" step="0.5" value={patient.diabetes_duration_years} onChange={e=>setField("diabetes_duration_years",e.target.value)} placeholder="DM years"
                     className="bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none" />
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <input type="number" step="0.1" value={patient.hba1c} onChange={e => setField("hba1c", e.target.value)} placeholder="HbA1c %"
+                  <input type="number" step="0.1" value={patient.hba1c} onChange={e=>setField("hba1c",e.target.value)} placeholder="HbA1c %"
                     className="bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none font-mono" />
-                  <input value={patient.blood_pressure} onChange={e => setField("blood_pressure", e.target.value)} placeholder="BP e.g. 130/80"
+                  <input value={patient.blood_pressure} onChange={e=>setField("blood_pressure",e.target.value)} placeholder="BP e.g. 130/80"
                     className="bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none font-mono" />
                 </div>
-                <select value={patient.eye_laterality} onChange={e => setField("eye_laterality", e.target.value)}
+                <select value={patient.eye_laterality} onChange={e=>setField("eye_laterality",e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-200 focus:border-teal-500 focus:outline-none">
                   <option>OD (Right Eye)</option><option>OS (Left Eye)</option><option>Both Eyes</option>
                 </select>
@@ -246,45 +246,45 @@ export default function AIDRScreen() {
                   <Camera className="w-4 h-4 text-teal-400" />
                   <h3 className="text-xs font-bold text-slate-200">Fundus Image</h3>
                 </div>
-                <div onClick={() => fileInputRef.current?.click()}
+                <div onClick={()=>fileInputRef.current?.click()}
                   className="border-2 border-dashed border-slate-700 hover:border-teal-500 rounded-xl p-4 text-center cursor-pointer transition-all bg-slate-950/60 hover:bg-slate-950 flex flex-col items-center justify-center min-h-[140px]">
                   <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+                    onChange={e=>{ const f=e.target.files?.[0]; if(f) handleFile(f); }} />
                   <div className="w-10 h-10 rounded-full bg-teal-500/10 text-teal-400 flex items-center justify-center mb-2">
                     <Upload className="w-5 h-5" />
                   </div>
                   <span className="text-xs font-bold text-slate-200">Upload Retinal Fundus Scan</span>
                   <span className="text-[11px] text-slate-400 mt-1">JPG or PNG — click to browse</span>
                 </div>
-                {stage === "validating" && (
+                {stage==="validating" && (
                   <div className="flex items-center gap-2 text-xs text-slate-400"><Loader2 className="w-3.5 h-3.5 animate-spin" />Checking image…</div>
                 )}
-                {stage === "processing" && (
+                {stage==="processing" && (
                   <div className="flex items-center gap-2 text-xs text-teal-300"><Loader2 className="w-3.5 h-3.5 animate-spin" />Running AI screening…</div>
                 )}
-                {stage === "rejected" && (
+                {stage==="rejected" && (
                   <div className="p-2.5 rounded-lg bg-rose-950/30 border border-rose-500/30 text-xs text-rose-300 flex items-start gap-2">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>Not a retinal fundus image. Please upload a genuine fundus photo.</span>
                   </div>
                 )}
-                {stage === "unsupported" && (
+                {stage==="unsupported" && (
                   <div className="p-2.5 rounded-lg bg-amber-950/30 border border-amber-500/30 text-xs text-amber-300 flex items-start gap-2">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>This format (e.g. .tif) can't be read by browsers. Convert to .jpg/.png first.</span>
                   </div>
                 )}
-                {stage === "apiError" && (
+                {stage==="apiError" && (
                   <div className="p-2.5 rounded-lg bg-rose-950/30 border border-rose-500/30 text-xs text-rose-300">
                     <div className="flex items-start gap-2 mb-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error || "Couldn't reach the model server."}</span></div>
-                    <button onClick={() => fileInputRef.current?.click()} className="text-[11px] font-bold underline">Try again</button>
+                    <button onClick={()=>fileInputRef.current?.click()} className="text-[11px] font-bold underline">Try again</button>
                   </div>
                 )}
               </div>
 
-              {results && stage === "results" && (
-                <div className={`p-3 rounded-xl border flex items-center gap-2 text-xs ${results.quality >= 70 ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-300" : "bg-amber-950/30 border-amber-500/30 text-amber-300"}`}>
-                  {results.quality >= 70 ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <Info className="w-4 h-4 shrink-0" />}
+              {results && stage==="results" && (
+                <div className={`p-3 rounded-xl border flex items-center gap-2 text-xs ${results.quality>=70?"bg-emerald-950/30 border-emerald-500/30 text-emerald-300":"bg-amber-950/30 border-amber-500/30 text-amber-300"}`}>
+                  {results.quality>=70 ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <Info className="w-4 h-4 shrink-0" />}
                   <span>Image quality: {results.quality}/100</span>
                 </div>
               )}
@@ -292,24 +292,24 @@ export default function AIDRScreen() {
 
             {/* Right: image viewer + results */}
             <div className="lg:col-span-8 space-y-6">
-              {stage !== "results" && !results && (
+              {stage!=="results" && !results && (
                 <div className="bg-slate-900/60 rounded-xl border border-dashed border-slate-800 p-16 text-center text-slate-500">
                   <Eye className="w-8 h-8 mx-auto mb-3 text-slate-700" />
                   <p className="text-sm">Upload a fundus image to run a screening.</p>
                 </div>
               )}
 
-              {results && stage === "results" && (
+              {results && stage==="results" && (
                 <>
                   <div className="bg-slate-900/90 rounded-xl border border-slate-800 p-4 space-y-3">
                     <div className="flex gap-1.5 border-b border-slate-800 pb-3">
-                      {[["original", "Original"], ["enhanced", "CLAHE Enhanced"], ["heatmap", "Grad-CAM"]].map(([id, label]) => (
-                        <button key={id} onClick={() => setTab(id)}
-                          className={`px-3 py-1.5 rounded-md text-xs font-semibold ${tab === id ? "bg-teal-500 text-slate-950" : "bg-slate-950 text-slate-400 border border-slate-800"}`}>{label}</button>
+                      {[["original","Original"],["enhanced","CLAHE Enhanced"],["heatmap","Grad-CAM"]].map(([id,label])=>(
+                        <button key={id} onClick={()=>setTab(id)}
+                          className={`px-3 py-1.5 rounded-md text-xs font-semibold ${tab===id?"bg-teal-500 text-slate-950":"bg-slate-950 text-slate-400 border border-slate-800"}`}>{label}</button>
                       ))}
                     </div>
                     <div className="rounded-xl overflow-hidden border border-slate-800 bg-black aspect-square relative">
-                      <img src={tab === "enhanced" ? results.enhanced : tab === "heatmap" ? results.heatmap : imgSrc} alt="Fundus" className="w-full h-full object-cover" />
+                      <img src={tab==="enhanced"?results.enhanced:tab==="heatmap"?results.heatmap:imgSrc} alt="Fundus" className="w-full h-full object-cover" />
                     </div>
                   </div>
 
@@ -320,7 +320,7 @@ export default function AIDRScreen() {
                           <span className={`w-2.5 h-2.5 rounded-full ${c.dot}`} />
                           <span className={`text-lg font-bold ${c.text}`}>Grade {results.grade}: {meta.label}</span>
                         </div>
-                        <p className="text-xs text-slate-400">Confidence: {(results.confidence * 100).toFixed(1)}%</p>
+                        <p className="text-xs text-slate-400">Confidence: {(results.confidence*100).toFixed(1)}%</p>
                       </div>
                       <span className={`px-2.5 py-1 rounded text-[11px] font-bold ${c.bg} ${c.text} border ${c.border}`}>{meta.triage}</span>
                     </div>
@@ -329,13 +329,13 @@ export default function AIDRScreen() {
 
                   <div className="bg-slate-900/90 rounded-xl border border-slate-800 p-4 space-y-3">
                     <h3 className="text-xs font-bold text-slate-200">Grade Probability Distribution</h3>
-                    {results.probs.map((p, i) => (
+                    {results.probs.map((p,i)=>(
                       <div key={i} className="flex items-center gap-3 text-xs">
                         <span className="w-24 text-slate-400 shrink-0">Grade {i} — {GRADE_META[i].short}</span>
                         <div className="flex-1 h-2 bg-slate-950 rounded-full overflow-hidden">
-                          <div className={`h-full ${COLOR_MAP[GRADE_META[i].color].solid}`} style={{ width: `${p * 100}%` }} />
+                          <div className={`h-full ${COLOR_MAP[GRADE_META[i].color].solid}`} style={{width:`${p*100}%`}} />
                         </div>
-                        <span className="w-10 text-right font-mono text-slate-400">{(p * 100).toFixed(0)}%</span>
+                        <span className="w-10 text-right font-mono text-slate-400">{(p*100).toFixed(0)}%</span>
                       </div>
                     ))}
                   </div>
@@ -347,7 +347,7 @@ export default function AIDRScreen() {
                   </div>
                   <p className="text-[11px] text-slate-500 -mt-3 px-1">Lesion-level biomarkers (microaneurysm/exudate counts, vessel density) require the segmentation model — planned for Phase 2.</p>
 
-                  <button onClick={() => setView("report")} className="w-full py-2.5 rounded-lg text-xs font-bold bg-teal-500 text-slate-950 hover:bg-teal-400 flex items-center justify-center gap-1.5">
+                  <button onClick={()=>setView("report")} className="w-full py-2.5 rounded-lg text-xs font-bold bg-teal-500 text-slate-950 hover:bg-teal-400 flex items-center justify-center gap-1.5">
                     <FileText className="w-3.5 h-3.5" /><span>View Full Report</span><ChevronRight className="w-3.5 h-3.5" />
                   </button>
                 </>
@@ -365,29 +365,29 @@ export default function AIDRScreen() {
                 <p className="text-xs text-slate-500">Rural PHC Diabetic Retinopathy Screening · SIH 26038</p>
               </div>
               <div className="text-right text-[11px] text-slate-500">
-                <div>Report ID: {`DR-${(patient.patient_id || "XXXX")}-${Date.now().toString().slice(-6)}`}</div>
+                <div>Report ID: {`DR-${(patient.patient_id||"XXXX")}-${Date.now().toString().slice(-6)}`}</div>
                 <div>{new Date().toLocaleString()}</div>
               </div>
             </div>
 
             <div className="grid grid-cols-4 gap-3 text-xs mb-4 pb-4 border-b border-slate-200">
-              <div><div className="text-slate-500">Patient</div><div className="font-semibold">{patient.patient_name || "—"}</div></div>
-              <div><div className="text-slate-500">Age / Gender</div><div className="font-semibold">{patient.age || "—"} / {patient.gender}</div></div>
-              <div><div className="text-slate-500">Diabetes</div><div className="font-semibold">{patient.diabetes_duration_years || "—"} yrs · HbA1c {patient.hba1c || "—"}%</div></div>
+              <div><div className="text-slate-500">Patient</div><div className="font-semibold">{patient.patient_name||"—"}</div></div>
+              <div><div className="text-slate-500">Age / Gender</div><div className="font-semibold">{patient.age||"—"} / {patient.gender}</div></div>
+              <div><div className="text-slate-500">Diabetes</div><div className="font-semibold">{patient.diabetes_duration_years||"—"} yrs · HbA1c {patient.hba1c||"—"}%</div></div>
               <div><div className="text-slate-500">Eye</div><div className="font-semibold">{patient.eye_laterality}</div></div>
             </div>
 
-            <div className={`rounded-lg p-4 mb-4 border-2 ${meta.color === "emerald" ? "border-emerald-600 bg-emerald-50" : meta.color === "sky" ? "border-sky-600 bg-sky-50" : meta.color === "amber" ? "border-amber-600 bg-amber-50" : meta.color === "orange" ? "border-orange-600 bg-orange-50" : "border-rose-600 bg-rose-50"}`}>
+            <div className={`rounded-lg p-4 mb-4 border-2 ${meta.color==="emerald"?"border-emerald-600 bg-emerald-50":meta.color==="sky"?"border-sky-600 bg-sky-50":meta.color==="amber"?"border-amber-600 bg-amber-50":meta.color==="orange"?"border-orange-600 bg-orange-50":"border-rose-600 bg-rose-50"}`}>
               <div className="text-[11px] font-bold uppercase text-slate-500 mb-1">AI Grading Result</div>
               <div className="text-xl font-extrabold">Grade {results.grade}: {meta.label}</div>
-              <div className="text-xs mt-1">Confidence: {(results.confidence * 100).toFixed(1)}% · Triage: {meta.triage}</div>
+              <div className="text-xs mt-1">Confidence: {(results.confidence*100).toFixed(1)}% · Triage: {meta.triage}</div>
             </div>
 
             <div className="grid grid-cols-3 gap-3 mb-4">
-              {["original", "enhanced", "heatmap"].map(k => (
+              {["original","enhanced","heatmap"].map(k=>(
                 <div key={k} className="border border-slate-300 rounded-lg overflow-hidden">
-                  <div className="text-[10px] font-bold uppercase text-center bg-slate-100 py-1">{k === "original" ? "Original" : k === "enhanced" ? "Enhanced" : "Grad-CAM"}</div>
-                  <img src={k === "enhanced" ? results.enhanced : k === "heatmap" ? results.heatmap : imgSrc} className="w-full aspect-square object-cover" alt={k} />
+                  <div className="text-[10px] font-bold uppercase text-center bg-slate-100 py-1">{k==="original"?"Original":k==="enhanced"?"Enhanced":"Grad-CAM"}</div>
+                  <img src={k==="enhanced"?results.enhanced:k==="heatmap"?results.heatmap:imgSrc} className="w-full aspect-square object-cover" alt={k} />
                 </div>
               ))}
             </div>
@@ -409,7 +409,7 @@ export default function AIDRScreen() {
 
             <div className="flex items-center justify-between pt-3 border-t border-slate-200 text-[10px] text-slate-500">
               <span>AI-DR-Screen (SIH 26038) — screening decision support, not a clinical diagnosis</span>
-              <button onClick={() => window.print()} className="flex items-center gap-1 text-slate-700 font-semibold print:hidden">
+              <button onClick={()=>window.print()} className="flex items-center gap-1 text-slate-700 font-semibold print:hidden">
                 <Printer className="w-3 h-3" /> Print
               </button>
             </div>
@@ -426,11 +426,11 @@ export default function AIDRScreen() {
               <h2 className="text-sm font-bold flex items-center gap-2"><Users className="w-4 h-4 text-teal-400" />Session Queue</h2>
               <p className="text-xs text-slate-400 mt-1">Screenings run this session, sorted by urgency.</p>
             </div>
-            {queue.length === 0 && <div className="text-center text-slate-500 py-12 text-sm">No screenings yet this session.</div>}
-            {[...queue].sort((a, b) => b.results.grade - a.results.grade).map(entry => {
+            {queue.length===0 && <div className="text-center text-slate-500 py-12 text-sm">No screenings yet this session.</div>}
+            {[...queue].sort((a,b)=>b.results.grade-a.results.grade).map(entry=>{
               const m = GRADE_META[entry.results.grade]; const cc = COLOR_MAP[m.color];
               return (
-                <button key={entry.id} onClick={() => selectFromQueue(entry)}
+                <button key={entry.id} onClick={()=>selectFromQueue(entry)}
                   className="w-full flex items-center justify-between bg-slate-900/90 rounded-xl border border-slate-800 hover:border-teal-500 p-3 text-left transition-all">
                   <div className="flex items-center gap-3">
                     <span className={`w-2.5 h-2.5 rounded-full ${cc.dot}`} />
@@ -453,13 +453,13 @@ export default function AIDRScreen() {
           <div className="bg-slate-900 border border-rose-500/30 rounded-xl p-5 max-w-sm w-full">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2 text-rose-300 font-bold text-sm"><AlertTriangle className="w-4 h-4" />Recapture Needed</div>
-              <button onClick={() => setRecapture(null)}><X className="w-4 h-4 text-slate-500" /></button>
+              <button onClick={()=>setRecapture(null)}><X className="w-4 h-4 text-slate-500" /></button>
             </div>
             <p className="text-xs text-slate-400 mb-2">Quality score: {recapture.quality}/100</p>
             <ul className="text-xs text-slate-300 list-disc pl-4 space-y-1 mb-4">
-              {recapture.issues.map((iss, i) => <li key={i}>{iss}</li>)}
+              {recapture.issues.map((iss,i)=><li key={i}>{iss}</li>)}
             </ul>
-            <button onClick={() => { setRecapture(null); fileInputRef.current?.click(); }}
+            <button onClick={()=>{ setRecapture(null); fileInputRef.current?.click(); }}
               className="w-full py-2 rounded-lg bg-teal-500 text-slate-950 text-xs font-bold flex items-center justify-center gap-1.5">
               <RefreshCw className="w-3.5 h-3.5" />Recapture Image
             </button>
