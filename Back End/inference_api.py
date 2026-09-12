@@ -34,7 +34,7 @@ MODEL_PATH = "checkpoints/best_model.pth"   # from train_classifier.py
 MODEL_NAME = "efficientnet_b4"
 IMAGE_SIZE = 380
 NUM_CLASSES = 5
-QUALITY_REJECT_THRESHOLD = 50   # below this, ask for a recapture instead of grading
+QUALITY_REJECT_THRESHOLD = 30   # below this, ask for a recapture instead of grading
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 app = FastAPI(title="DR Screen AI — Inference API")
