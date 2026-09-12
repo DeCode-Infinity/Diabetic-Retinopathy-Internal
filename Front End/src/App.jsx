@@ -26,8 +26,7 @@ import {
    - No fake sample presets — only real uploaded images produce results.
 ============================================================================ */
 
-const API_URL = "http://localhost:8000"; // point at your ngrok URL if backend isn't local
-
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const GRADE_META = {
   0: {
     label: "No Diabetic Retinopathy", short: "Healthy", color: "emerald",
