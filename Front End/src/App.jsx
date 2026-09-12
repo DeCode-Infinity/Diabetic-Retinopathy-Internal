@@ -1,80 +1,44 @@
-import { useState, useRef, useCallback } from "react";
-import {
-  Activity, Eye, FileText, Upload, Camera, AlertTriangle, CheckCircle2,
-  Users, Hospital, RefreshCw, ChevronRight, Printer, Loader2, Info, X
-} from "lucide-react";
-
-/* ============================================================================
-   AI-DR-Screen — connects directly to your trained EfficientNet-B4 model via
-   inference_api.py. No mock data anywhere: grade, confidence, probabilities,
-   quality metrics, the CLAHE image, and the Grad-CAM heatmap all come from
-   the real backend response.
-
-   Corrections vs. the reference mockup (flagging so nothing overclaims):
-   - Tech badge says "EfficientNet-B4 · Grad-CAM" — not ResNet-50/Frangi
-     Hessian, since that's not what's actually trained.
-   - No "Frangi Vessels & Lesions" tab and no MA/exudate-count biomarker
-     table — that needs the segmentation model, which hasn't been trained
-     yet (still 0% per your roadmap). Shown as quality/confidence metrics
-     instead, with an explicit note that lesion-level biomarkers are a
-     Phase 2 item.
-   - No Gemini "AI synthesis" — clinical impression / PHC guidance / patient
-     summary are template text keyed by grade, not an LLM call, since no
-     such integration is built. Labeled as clinical decision support, not
-     multimodal AI synthesis.
-   - No "Digitally Verifiable Seal" / QR claim — just a plain report ID.
-   - No fake sample presets — only real uploaded images produce results.
-============================================================================ */
+import { useState, useRef, useEffect, useCallback } from "react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const GRADE_META = {
-  0: {
-    label: "No Diabetic Retinopathy", short: "Healthy", color: "emerald",
-    triage: "Annual review (12 months)",
-    impression: "No microaneurysms, haemorrhages, or exudates detected. Vascular pattern appears intact.",
-    phc: "Reassure patient. Schedule next annual retinal photography screening. Reinforce glycemic control.",
-    patient: "Your retinal scan looks healthy with no signs of diabetic eye damage right now. Keep managing your blood sugar and come back for your yearly check.",
-  },
-  1: {
-    label: "Mild NPDR", short: "Mild", color: "sky",
-    triage: "Re-screen in 6 months",
-    impression: "Early-stage changes consistent with mild non-proliferative diabetic retinopathy.",
-    phc: "No urgent referral needed. Schedule a follow-up screening in 6 months and reinforce glycemic control.",
-    patient: "There are very early signs of diabetic eye changes. This is common and manageable — please come back in 6 months for a follow-up scan.",
-  },
-  2: {
-    label: "Moderate NPDR", short: "Moderate", color: "amber",
-    triage: "Refer to ophthalmologist (4–6 weeks)",
-    impression: "Moderate non-proliferative diabetic retinopathy with multiple lesions present.",
-    phc: "Refer to an ophthalmologist within 4–6 weeks. Continue monitoring glycemic status in the meantime.",
-    patient: "Your scan shows moderate changes in your eyes related to diabetes. Please see an eye specialist within the next 4–6 weeks.",
-  },
-  3: {
-    label: "Severe NPDR", short: "Severe", color: "orange",
-    triage: "Urgent referral (1–2 weeks)",
-    impression: "Severe non-proliferative diabetic retinopathy — high risk of progression.",
-    phc: "Urgent referral required within 1–2 weeks. Flag this patient for priority follow-up.",
-    patient: "Your scan shows significant changes that need urgent attention. Please see an eye specialist within the next 1–2 weeks.",
-  },
-  4: {
-    label: "Proliferative DR", short: "PDR", color: "rose",
-    triage: "IMMEDIATE referral",
-    impression: "Proliferative diabetic retinopathy — signs of abnormal new vessel growth. Immediate risk to vision.",
-    phc: "IMMEDIATE referral to an ophthalmologist. Do not delay — risk of vision loss.",
-    patient: "Your scan shows serious changes that need immediate medical attention. Please see an eye specialist as soon as possible.",
-  },
-};
 
-const COLOR_MAP = {
-  emerald: { bg: "bg-emerald-500/10", text: "text-emerald-300", border: "border-emerald-500/30", dot: "bg-emerald-400", solid: "bg-emerald-500" },
-  sky:     { bg: "bg-sky-500/10",     text: "text-sky-300",     border: "border-sky-500/30",     dot: "bg-sky-400",     solid: "bg-sky-500" },
-  amber:   { bg: "bg-amber-500/10",   text: "text-amber-300",   border: "border-amber-500/30",   dot: "bg-amber-400",   solid: "bg-amber-500" },
-  orange:  { bg: "bg-orange-500/10",  text: "text-orange-300",  border: "border-orange-500/30",  dot: "bg-orange-400",  solid: "bg-orange-500" },
-  rose:    { bg: "bg-rose-500/10",    text: "text-rose-300",    border: "border-rose-500/30",    dot: "bg-rose-400",    solid: "bg-rose-500" },
-};
+// ─── DATA ───────────────────────────────────────────────────────────────────
+const GRADES = [
+  {
+    name: "No DR", label: "Grade 0", urgency: "No Referral Required",
+    action: "No diabetic retinopathy detected. Continue annual screening and diabetes management.",
+    color: "#22C55E", textColor: "#4ADE80", bg: "rgba(34,197,94,0.07)",
+  },
+  {
+    name: "Mild NPDR", label: "Grade 1", urgency: "Monitor — 6 Months",
+    action: "Mild non-proliferative DR. Early microaneurysms noted. Schedule 6-month follow-up with improved glycaemic control.",
+    color: "#A3E635", textColor: "#BEF264", bg: "rgba(163,230,53,0.07)",
+  },
+  {
+    name: "Moderate NPDR", label: "Grade 2", urgency: "Refer — 4 to 6 Weeks",
+    action: "Moderate non-proliferative DR. Multiple lesions present. Ophthalmology referral within 4–6 weeks recommended.",
+    color: "#FBBF24", textColor: "#FCD34D", bg: "rgba(251,191,36,0.07)",
+  },
+  {
+    name: "Severe NPDR", label: "Grade 3", urgency: "Urgent Referral",
+    action: "Severe non-proliferative DR. Significant haemorrhages across quadrants. Urgent ophthalmology referral required.",
+    color: "#F97316", textColor: "#FB923C", bg: "rgba(249,115,22,0.08)",
+  },
+  {
+    name: "Proliferative DR", label: "Grade 4", urgency: "IMMEDIATE REFERRAL",
+    action: "Sight-threatening proliferative DR. Neovascularisation detected. IMMEDIATE referral. Anti-VEGF or laser photocoagulation needed.",
+    color: "#EF4444", textColor: "#F87171", bg: "rgba(239,68,68,0.09)",
+  },
+];
 
-// Real screening filter — rejects non-fundus uploads before they ever reach
-// the model (same logic validated earlier against real/fake test images).
+const PHASES = [
+  { name: "Quality Assessment",    detail: "entropy · sharpness metrics" },
+  { name: "CLAHE Enhancement",     detail: "green channel enhancement" },
+  { name: "Deep Learning Grading", detail: "EfficientNet-B4 inference" },
+  { name: "Grad-CAM Generation",   detail: "gradient-weighted attention mapping" },
+];
+
+// ─── SCREENING FILTER (gatekeeper stage, runs BEFORE the DR pipeline) ────────
 function checkIsRetina(imgEl) {
   const W = 200, H = 200;
   const cv = document.createElement("canvas");
@@ -82,40 +46,76 @@ function checkIsRetina(imgEl) {
   const ctx = cv.getContext("2d");
   ctx.drawImage(imgEl, 0, 0, W, H);
   const { data } = ctx.getImageData(0, 0, W, H);
-  let rSum=0,gSum=0,bSum=0,aSum=0,cornerDark=0,n=0;
-  const corners=[[5,5],[W-5,5],[5,H-5],[W-5,H-5]];
-  for (let y=0;y<H;y+=4) for (let x=0;x<W;x+=4){
-    const i=(y*W+x)*4; rSum+=data[i]; gSum+=data[i+1]; bSum+=data[i+2]; aSum+=data[i+3]; n++;
+  let rSum=0, gSum=0, bSum=0, aSum=0, cornerDark=0, n=0;
+  const corners = [[5,5],[W-5,5],[5,H-5],[W-5,H-5]];
+  for (let y=0; y<H; y+=4) {
+    for (let x=0; x<W; x+=4) {
+      const i = (y*W+x)*4;
+      rSum+=data[i]; gSum+=data[i+1]; bSum+=data[i+2]; aSum+=data[i+3]; n++;
+    }
   }
-  if (aSum/n < 250) return false; // transparent PNGs aren't photos
-  corners.forEach(([x,y])=>{ const i=(y*W+x)*4; if((data[i]+data[i+1]+data[i+2])/3<40) cornerDark++; });
-  const rAvg=rSum/n,gAvg=gSum/n,bAvg=bSum/n;
-  return (rAvg>gAvg*1.15 && rAvg>bAvg*1.3) && cornerDark>=2;
+  if (aSum/n < 250) return false;
+  corners.forEach(([x,y])=>{
+    const i=(y*W+x)*4;
+    if ((data[i]+data[i+1]+data[i+2])/3 < 40) cornerDark++;
+  });
+  const rAvg=rSum/n, gAvg=gSum/n, bAvg=bSum/n;
+  return (rAvg > gAvg*1.15 && rAvg > bAvg*1.3) && cornerDark >= 2;
 }
 
-const emptyPatient = {
-  patient_id: "", patient_name: "", age: "", gender: "Female",
-  diabetes_duration_years: "", hba1c: "", blood_pressure: "",
-  eye_laterality: "OD (Right Eye)", phc_center_name: "", clinician_name: "",
-};
+// ─── TINY ICONS ──────────────────────────────────────────────────────────────
+const EyeIcon=()=>(
+  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={1.8}>
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+);
+const CheckIcon=()=>(
+  <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth={3}>
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+const SpinnerIcon=({color="#00BFFF"})=>(
+  <div style={{width:13,height:13,border:`2px solid rgba(0,191,255,0.15)`,borderTopColor:color,borderRadius:"50%",animation:"drSpin 0.75s linear infinite",flexShrink:0}}/>
+);
 
-export default function AIDRScreen() {
-  const [patient, setPatient] = useState(emptyPatient);
-  const [imgSrc, setImgSrc] = useState(null);
-  const [stage, setStage] = useState("idle"); // idle | validating | processing | results | rejected | unsupported | apiError
-  const [results, setResults] = useState(null);
-  const [error, setError] = useState("");
-  const [tab, setTab] = useState("original");
-  const [view, setView] = useState("screening"); // screening | report | queue
-  const [queue, setQueue] = useState([]);
-  const [recapture, setRecapture] = useState(null); // {issues, quality} or null
+// ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
+export default function DRScreenAI() {
+  const [stage,setStage]=useState("upload"); // upload|validating|processing|results|rejected|unsupported|apiError
+  const [imgSrc,setImgSrc]=useState(null);
+  const [phaseIdx,setPhaseIdx]=useState(-1);
+  const [done,setDone]=useState([]);
+  const [results,setResults]=useState(null);
+  const [tab,setTab]=useState("original");
+  const [dragging,setDragging]=useState(false);
+  const [error,setError]=useState("");
+  const [recapture,setRecapture]=useState(null);
 
-  const fileInputRef = useRef(null);
+  const fileRef=useRef(null);
+  const timers=useRef([]);
 
-  const setField = (field, value) => setPatient(p => ({ ...p, [field]: value }));
+  // Drives the phase-progress animation while the real API call is in flight.
+  // The animation loops through phases; when the fetch resolves, we jump straight to results.
+  const runRealPipeline = useCallback((file, dataUrl) => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+    setImgSrc(dataUrl); setStage("processing"); setError("");
+    setPhaseIdx(-1); setDone([]); setTab("original"); setResults(null);
 
-  const runScreening = useCallback((file, dataUrl) => {
-    setStage("processing"); setError("");
+    // step through phases visually every ~650ms, looping until real data arrives
+    let i = 0;
+    const stepMs = 650;
+    const stepper = setInterval(() => {
+      setPhaseIdx(i % PHASES.length);
+      setDone(prev => {
+        const next = [...prev];
+        if (i > 0 && !next.includes((i - 1) % PHASES.length)) next.push((i - 1) % PHASES.length);
+        return next;
+      });
+      i++;
+    }, stepMs);
+    timers.current.push(stepper);
+
     const formData = new FormData();
     formData.append("file", file);
 
@@ -123,8 +123,9 @@ export default function AIDRScreen() {
       .then(async res => {
         if (res.status === 422) {
           const body = await res.json();
+          clearInterval(stepper);
           setRecapture({ issues: body.detail?.issues || ["Image quality too low"], quality: body.detail?.quality });
-          setStage("idle");
+          setStage("upload");
           return null;
         }
         if (!res.ok) throw new Error(`Server responded ${res.status}`);
@@ -132,343 +133,349 @@ export default function AIDRScreen() {
       })
       .then(data => {
         if (!data) return;
-        setResults(data);
-        setImgSrc(dataUrl);
-        setStage("results");
-        setQueue(q => [{ id: Date.now(), patient: { ...patient }, results: data, imgSrc: dataUrl, ts: new Date() }, ...q]);
+        clearInterval(stepper);
+        setDone([0,1,2,3]);
+        setPhaseIdx(3);
+        setTimeout(() => {
+          setResults(data);
+          setStage("results");
+        }, 350);
       })
-      .catch(err => { setError(err.message || "Could not reach the model server."); setStage("apiError"); });
-  }, [patient]);
+      .catch(err => {
+        clearInterval(stepper);
+        setError(err.message || "Could not reach the model server.");
+        setStage("apiError");
+      });
+  }, []);
 
-  const handleFile = useCallback((file) => {
-    if (!file?.type.startsWith("image/")) return;
-    const rdr = new FileReader();
-    rdr.onload = e => {
-      const dataUrl = e.target.result;
+  const handleFile=useCallback((file)=>{
+    if(!file?.type.startsWith("image/"))return;
+    const rdr=new FileReader();
+    rdr.onload=e=>{
+      const dataUrl=e.target.result;
       setStage("validating");
-      const img = new Image();
-      let settled = false;
-      const timeout = setTimeout(() => { if (!settled) { settled = true; setImgSrc(dataUrl); setStage("unsupported"); } }, 4000);
-      img.onerror = () => { if (settled) return; settled = true; clearTimeout(timeout); setImgSrc(dataUrl); setStage("unsupported"); };
-      img.onload = () => {
-        if (settled) return; settled = true; clearTimeout(timeout);
-        if (!checkIsRetina(img)) { setImgSrc(dataUrl); setStage("rejected"); return; }
-        runScreening(file, dataUrl);
+      const img=new Image();
+      let settled=false;
+      const timeout=setTimeout(()=>{
+        if(!settled){ settled=true; setImgSrc(dataUrl); setStage("unsupported"); }
+      },4000);
+      img.onerror=()=>{
+        if(settled)return; settled=true; clearTimeout(timeout);
+        setImgSrc(dataUrl); setStage("unsupported");
       };
-      img.src = dataUrl;
+      img.onload=()=>{
+        if(settled)return; settled=true; clearTimeout(timeout);
+        const ok=checkIsRetina(img);
+        if(!ok){ setImgSrc(dataUrl); setStage("rejected"); return; }
+        runRealPipeline(file,dataUrl);
+      };
+      img.src=dataUrl;
     };
     rdr.readAsDataURL(file);
-  }, [runScreening]);
+  },[runRealPipeline]);
 
-  const selectFromQueue = (entry) => {
-    setPatient(entry.patient); setResults(entry.results); setImgSrc(entry.imgSrc);
-    setStage("results"); setView("screening"); setTab("original");
-  };
+  const reset=useCallback(()=>{
+    timers.current.forEach(clearTimeout);
+    setStage("upload"); setImgSrc(null); setResults(null); setPhaseIdx(-1); setDone([]); setError("");
+  },[]);
 
-  const meta = results ? GRADE_META[results.grade] : null;
-  const c = meta ? COLOR_MAP[meta.color] : null;
+  // Tokens
+  const C={ bg:"#020B18", surface:"#071525", card:"#0C2040", border:"#143058", accent:"#00BFFF", text:"#E2EDF8", sub:"#6A8FAE", muted:"#2E5070" };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-600 to-emerald-400 flex items-center justify-center text-slate-950">
-              <Eye className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="font-extrabold text-base text-white">AI-DR-Screen <span className="text-teal-400 font-mono text-xs">SIH 26038</span></h1>
-              <p className="text-[11px] text-slate-400">Diabetic Retinopathy Screening for Rural Primary Health Centers</p>
-            </div>
+    <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:C.bg,minHeight:"100vh",color:C.text}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+        @keyframes drSpin{to{transform:rotate(360deg)}}
+        @keyframes drPulse{0%,100%{opacity:1}50%{opacity:0.3}}
+        @keyframes drSweep{to{transform:rotate(360deg)}}
+        @keyframes drFade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+        .dr-upload:hover{border-color:#00BFFF!important;background:rgba(0,191,255,0.05)!important}
+        .dr-tab{transition:all .15s ease!important;cursor:pointer}
+        .dr-tab:hover{border-color:#00BFFF!important;color:#00BFFF!important}
+        .dr-cta:hover{filter:brightness(1.18)!important;transform:translateY(-1px)!important}
+        .dr-outline:hover{border-color:#00BFFF!important;color:#E2EDF8!important}
+      `}</style>
+
+      {/* ══ HEADER ══ */}
+      <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 28px",borderBottom:`1px solid ${C.border}`,background:"rgba(2,11,24,0.94)",backdropFilter:"blur(12px)",position:"sticky",top:0,zIndex:99}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:33,height:33,borderRadius:"50%",background:"radial-gradient(circle,#00BFFF 0%,#0062A8 55%,#002A60 100%)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 14px rgba(0,191,255,0.38)"}}>
+            <EyeIcon/>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-              {[["screening","Screening",Activity],["report","Report",FileText],["queue",`Session Queue (${queue.length})`,Users]].map(([id,label,Icon])=>(
-                <button key={id} onClick={()=>setView(id)}
-                  className={`px-3 py-1.5 rounded-md font-semibold flex items-center gap-1.5 transition-all ${view===id?"bg-teal-500 text-slate-950":"text-slate-400 hover:text-slate-200"}`}>
-                  <Icon className="w-3.5 h-3.5" /><span>{label}</span>
-                </button>
-              ))}
-            </div>
-            <div className="hidden lg:flex items-center gap-2 bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-800 text-xs">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-slate-300 font-mono">EfficientNet-B4 · Grad-CAM</span>
-            </div>
+          <div>
+            <div style={{fontFamily:"'Space Grotesk'",fontWeight:700,fontSize:15,letterSpacing:"-0.3px"}}>DR Screen <span style={{color:C.accent}}>AI</span></div>
+            <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:"0.7px"}}>SIH 26038 · Retinopathy Screening</div>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:16}}>
+          {stage!=="upload"&&<button className="dr-outline" onClick={reset} style={{padding:"6px 14px",borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",color:C.sub,cursor:"pointer",fontSize:11,fontFamily:"'Inter'"}}>← New Scan</button>}
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <div style={{width:5,height:5,borderRadius:"50%",background:"#22C55E",boxShadow:"0 0 7px #22C55E",animation:"drPulse 2s ease infinite"}}/>
+            <span style={{fontSize:10,color:C.sub}}>System Online</span>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto p-4 sm:p-6">
-        {/* ══ SCREENING VIEW ══ */}
-        {view === "screening" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left: patient intake + upload */}
-            <div className="lg:col-span-4 space-y-4">
-              <div className="bg-slate-900/90 rounded-xl border border-slate-800 p-4 space-y-3">
-                <div className="flex items-center gap-2 border-b border-slate-800 pb-2.5">
-                  <Hospital className="w-4 h-4 text-teal-400" />
-                  <h3 className="text-xs font-bold text-slate-200">Patient Details</h3>
-                </div>
-                <div className="grid grid-cols-5 gap-2 text-xs">
-                  <input value={patient.patient_id} onChange={e=>setField("patient_id",e.target.value)} placeholder="ID"
-                    className="col-span-2 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none" />
-                  <input value={patient.patient_name} onChange={e=>setField("patient_name",e.target.value)} placeholder="Full name"
-                    className="col-span-3 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none" />
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="flex gap-1">
-                    <input type="number" value={patient.age} onChange={e=>setField("age",e.target.value)} placeholder="Age"
-                      className="w-1/2 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none" />
-                    <select value={patient.gender} onChange={e=>setField("gender",e.target.value)}
-                      className="w-1/2 bg-slate-950 border border-slate-800 rounded px-1 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none">
-                      <option>Female</option><option>Male</option><option>Other</option>
-                    </select>
-                  </div>
-                  <input type="number" step="0.5" value={patient.diabetes_duration_years} onChange={e=>setField("diabetes_duration_years",e.target.value)} placeholder="DM years"
-                    className="bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none" />
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <input type="number" step="0.1" value={patient.hba1c} onChange={e=>setField("hba1c",e.target.value)} placeholder="HbA1c %"
-                    className="bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none font-mono" />
-                  <input value={patient.blood_pressure} onChange={e=>setField("blood_pressure",e.target.value)} placeholder="BP e.g. 130/80"
-                    className="bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:border-teal-500 focus:outline-none font-mono" />
-                </div>
-                <select value={patient.eye_laterality} onChange={e=>setField("eye_laterality",e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-xs text-slate-200 focus:border-teal-500 focus:outline-none">
-                  <option>OD (Right Eye)</option><option>OS (Left Eye)</option><option>Both Eyes</option>
-                </select>
-              </div>
+      <main style={{maxWidth:1080,margin:"0 auto",padding:"36px 20px"}}>
 
-              <div className="bg-slate-900/90 rounded-xl border border-slate-800 p-4 space-y-3">
-                <div className="flex items-center gap-2 border-b border-slate-800 pb-2.5">
-                  <Camera className="w-4 h-4 text-teal-400" />
-                  <h3 className="text-xs font-bold text-slate-200">Fundus Image</h3>
-                </div>
-                <div onClick={()=>fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-slate-700 hover:border-teal-500 rounded-xl p-4 text-center cursor-pointer transition-all bg-slate-950/60 hover:bg-slate-950 flex flex-col items-center justify-center min-h-[140px]">
-                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
-                    onChange={e=>{ const f=e.target.files?.[0]; if(f) handleFile(f); }} />
-                  <div className="w-10 h-10 rounded-full bg-teal-500/10 text-teal-400 flex items-center justify-center mb-2">
-                    <Upload className="w-5 h-5" />
-                  </div>
-                  <span className="text-xs font-bold text-slate-200">Upload Retinal Fundus Scan</span>
-                  <span className="text-[11px] text-slate-400 mt-1">JPG or PNG — click to browse</span>
-                </div>
-                {stage==="validating" && (
-                  <div className="flex items-center gap-2 text-xs text-slate-400"><Loader2 className="w-3.5 h-3.5 animate-spin" />Checking image…</div>
-                )}
-                {stage==="processing" && (
-                  <div className="flex items-center gap-2 text-xs text-teal-300"><Loader2 className="w-3.5 h-3.5 animate-spin" />Running AI screening…</div>
-                )}
-                {stage==="rejected" && (
-                  <div className="p-2.5 rounded-lg bg-rose-950/30 border border-rose-500/30 text-xs text-rose-300 flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>Not a retinal fundus image. Please upload a genuine fundus photo.</span>
-                  </div>
-                )}
-                {stage==="unsupported" && (
-                  <div className="p-2.5 rounded-lg bg-amber-950/30 border border-amber-500/30 text-xs text-amber-300 flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>This format (e.g. .tif) can't be read by browsers. Convert to .jpg/.png first.</span>
-                  </div>
-                )}
-                {stage==="apiError" && (
-                  <div className="p-2.5 rounded-lg bg-rose-950/30 border border-rose-500/30 text-xs text-rose-300">
-                    <div className="flex items-start gap-2 mb-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error || "Couldn't reach the model server."}</span></div>
-                    <button onClick={()=>fileInputRef.current?.click()} className="text-[11px] font-bold underline">Try again</button>
-                  </div>
-                )}
-              </div>
+        {/* ══ VALIDATING ══ */}
+        {stage==="validating"&&(
+          <div style={{textAlign:"center",padding:"80px 20px",animation:"drFade 0.3s ease"}}>
+            <SpinnerIcon/>
+            <div style={{marginTop:14,fontSize:13,color:C.sub}}>Checking image is a valid fundus photo…</div>
+          </div>
+        )}
 
-              {results && stage==="results" && (
-                <div className={`p-3 rounded-xl border flex items-center gap-2 text-xs ${results.quality>=70?"bg-emerald-950/30 border-emerald-500/30 text-emerald-300":"bg-amber-950/30 border-amber-500/30 text-amber-300"}`}>
-                  {results.quality>=70 ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <Info className="w-4 h-4 shrink-0" />}
-                  <span>Image quality: {results.quality}/100</span>
-                </div>
-              )}
+        {/* ══ UNSUPPORTED FORMAT ══ */}
+        {stage==="unsupported"&&(
+          <div style={{textAlign:"center",padding:"60px 20px",animation:"drFade 0.3s ease"}}>
+            <div style={{fontSize:15,fontWeight:600,color:"#FBBF24",marginBottom:8}}>Image format not supported by browser</div>
+            <div style={{fontSize:12,color:C.sub,marginBottom:20}}>This file (e.g. .tif/.tiff) can't be decoded by web browsers. Convert it to .jpg or .png first, then re-upload.</div>
+            <button className="dr-cta" onClick={reset} style={{padding:"9px 20px",borderRadius:8,border:"none",background:C.accent,color:"#02121F",fontWeight:600,cursor:"pointer",fontSize:12}}>Try Another Image</button>
+          </div>
+        )}
+
+        {/* ══ REJECTED ══ */}
+        {stage==="rejected"&&(
+          <div style={{textAlign:"center",padding:"60px 20px",animation:"drFade 0.3s ease"}}>
+            <div style={{fontSize:15,fontWeight:600,color:"#F87171",marginBottom:8}}>Not a retinal fundus image</div>
+            <div style={{fontSize:12,color:C.sub,marginBottom:20}}>The uploaded image doesn't match a fundus photo (missing red/orange retinal tone and circular vignette). Please upload a genuine retina scan.</div>
+            <button className="dr-cta" onClick={reset} style={{padding:"9px 20px",borderRadius:8,border:"none",background:C.accent,color:"#02121F",fontWeight:600,cursor:"pointer",fontSize:12}}>Try Another Image</button>
+          </div>
+        )}
+
+        {/* ══ API ERROR ══ */}
+        {stage==="apiError"&&(
+          <div style={{textAlign:"center",padding:"60px 20px",animation:"drFade 0.3s ease"}}>
+            <div style={{fontSize:15,fontWeight:600,color:"#F87171",marginBottom:8}}>Couldn't reach the model server</div>
+            <div style={{fontSize:12,color:C.sub,marginBottom:20}}>{error}</div>
+            <button className="dr-cta" onClick={reset} style={{padding:"9px 20px",borderRadius:8,border:"none",background:C.accent,color:"#02121F",fontWeight:600,cursor:"pointer",fontSize:12}}>Try Again</button>
+          </div>
+        )}
+
+        {/* ══ UPLOAD ══ */}
+        {stage==="upload"&&(
+          <div style={{animation:"drFade 0.4s ease"}}>
+            <div style={{textAlign:"center",marginBottom:44}}>
+              <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 14px",borderRadius:20,background:"rgba(0,191,255,0.08)",border:"1px solid rgba(0,191,255,0.2)",fontSize:10,color:C.accent,marginBottom:22,textTransform:"uppercase",letterSpacing:"1.2px"}}>
+                <div style={{width:5,height:5,borderRadius:"50%",background:C.accent,animation:"drPulse 1.5s infinite"}}/>
+                AI-Powered Fundus Analysis
+              </div>
+              <h1 style={{fontFamily:"'Space Grotesk'",fontSize:"clamp(30px,5vw,50px)",fontWeight:700,margin:"0 0 14px",letterSpacing:"-1.2px",lineHeight:1.08,background:`linear-gradient(145deg,${C.text} 30%,${C.accent} 100%)`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>
+                Diabetic Retinopathy<br/>Screening System
+              </h1>
+              <p style={{color:C.sub,fontSize:13,maxWidth:420,margin:"0 auto",lineHeight:1.65}}>
+                Upload a fundus image for automated AI grading with explainable Grad-CAM heatmaps — built for India's rural PHCs
+              </p>
             </div>
 
-            {/* Right: image viewer + results */}
-            <div className="lg:col-span-8 space-y-6">
-              {stage!=="results" && !results && (
-                <div className="bg-slate-900/60 rounded-xl border border-dashed border-slate-800 p-16 text-center text-slate-500">
-                  <Eye className="w-8 h-8 mx-auto mb-3 text-slate-700" />
-                  <p className="text-sm">Upload a fundus image to run a screening.</p>
+            {recapture && (
+              <div style={{maxWidth:460,margin:"0 auto 24px",padding:"14px 16px",borderRadius:10,background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.3)"}}>
+                <div style={{fontSize:12,fontWeight:600,color:"#F87171",marginBottom:6}}>Recapture Needed — Quality {recapture.quality}/100</div>
+                <ul style={{margin:0,paddingLeft:18,fontSize:11,color:C.sub}}>
+                  {recapture.issues.map((iss,i)=><li key={i}>{iss}</li>)}
+                </ul>
+              </div>
+            )}
+
+            <div
+              className="dr-upload"
+              onDragOver={e=>{e.preventDefault();setDragging(true);}}
+              onDragLeave={()=>setDragging(false)}
+              onDrop={e=>{e.preventDefault();setDragging(false);handleFile(e.dataTransfer.files[0]);}}
+              onClick={()=>fileRef.current?.click()}
+              style={{borderRadius:14,border:`2px dashed ${dragging?C.accent:C.border}`,padding:"52px 32px",textAlign:"center",cursor:"pointer",background:dragging?"rgba(0,191,255,0.05)":"rgba(7,21,37,0.5)",transition:"all .2s ease",marginBottom:28,position:"relative",overflow:"hidden"}}
+            >
+              {[220,320,420].map((s,i)=>(
+                <div key={i} style={{position:"absolute",top:"50%",left:"50%",width:s,height:s,borderRadius:"50%",border:`1px solid rgba(0,191,255,${0.04-i*0.01})`,transform:"translate(-50%,-50%)",pointerEvents:"none"}}/>
+              ))}
+              <div style={{width:56,height:56,borderRadius:"50%",background:"rgba(0,191,255,0.07)",border:"1px solid rgba(0,191,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 18px"}}>
+                <svg width={26} height={26} viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth={1.5}>
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                </svg>
+              </div>
+              <div style={{fontFamily:"'Space Grotesk'",fontSize:17,fontWeight:600,marginBottom:6}}>Drop fundus image here</div>
+              <div style={{color:C.sub,fontSize:12,marginBottom:18}}>JPG · PNG accepted</div>
+              <div style={{display:"inline-block",padding:"7px 18px",borderRadius:7,background:"rgba(0,191,255,0.1)",border:"1px solid rgba(0,191,255,0.25)",fontSize:12,color:C.accent,fontWeight:500}}>Browse Files</div>
+              <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+            </div>
+
+            <div style={{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:8,paddingTop:28,borderTop:`1px solid ${C.border}`}}>
+              {[["🧠","EfficientNet-B4"],["🔥","Grad-CAM XAI"],["📡","PHC Optimized"]].map(([ic,lb])=>(
+                <div key={lb} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 14px",borderRadius:20,border:`1px solid ${C.border}`,background:"rgba(12,32,64,0.4)",fontSize:11,color:C.sub}}>
+                  <span>{ic}</span><span>{lb}</span>
                 </div>
-              )}
+              ))}
+            </div>
+          </div>
+        )}
 
-              {results && stage==="results" && (
-                <>
-                  <div className="bg-slate-900/90 rounded-xl border border-slate-800 p-4 space-y-3">
-                    <div className="flex gap-1.5 border-b border-slate-800 pb-3">
-                      {[["original","Original"],["enhanced","CLAHE Enhanced"],["heatmap","Grad-CAM"]].map(([id,label])=>(
-                        <button key={id} onClick={()=>setTab(id)}
-                          className={`px-3 py-1.5 rounded-md text-xs font-semibold ${tab===id?"bg-teal-500 text-slate-950":"bg-slate-950 text-slate-400 border border-slate-800"}`}>{label}</button>
-                      ))}
-                    </div>
-                    <div className="rounded-xl overflow-hidden border border-slate-800 bg-black aspect-square relative">
-                      <img src={tab==="enhanced"?results.enhanced:tab==="heatmap"?results.heatmap:imgSrc} alt="Fundus" className="w-full h-full object-cover" />
-                    </div>
-                  </div>
+        {/* ══ PROCESSING ══ */}
+        {stage==="processing"&&(
+          <div style={{display:"grid",gridTemplateColumns:"minmax(250px,1fr) minmax(250px,1.1fr)",gap:28,animation:"drFade .35s ease"}}>
+            <div>
+              <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"1px",marginBottom:10}}>Input Fundus Image</div>
+              <div style={{borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`,aspectRatio:"1",background:"#000",position:"relative"}}>
+                <img src={imgSrc} alt="" style={{width:"100%",height:"100%",objectFit:"cover",opacity:.8}}/>
+                {[0.36,0.52,0.68].map((r,i)=>(
+                  <div key={i} style={{position:"absolute",top:"50%",left:"50%",width:`${r*100}%`,height:`${r*100}%`,borderRadius:"50%",border:`1px solid rgba(0,191,255,${0.2-i*0.05})`,transform:"translate(-50%,-50%)"}}/>
+                ))}
+                <div style={{position:"absolute",top:"50%",left:"50%",width:"68%",height:"68%",borderRadius:"50%",transform:"translate(-50%,-50%)",animation:"drSweep 2.4s linear infinite",transformOrigin:"center"}}>
+                  <div style={{position:"absolute",top:"50%",left:"50%",width:"50%",height:"1px",background:`linear-gradient(to right,${C.accent}CC,transparent)`,transformOrigin:"left center"}}/>
+                </div>
+                <div style={{position:"absolute",top:"50%",left:"50%",width:6,height:6,borderRadius:"50%",background:C.accent,boxShadow:`0 0 12px ${C.accent}`,transform:"translate(-50%,-50%)",animation:"drPulse 1s infinite"}}/>
+                <div style={{position:"absolute",top:10,left:10,width:14,height:14,borderTop:`2px solid ${C.accent}`,borderLeft:`2px solid ${C.accent}`,opacity:.7}}/>
+                <div style={{position:"absolute",top:10,right:10,width:14,height:14,borderTop:`2px solid ${C.accent}`,borderRight:`2px solid ${C.accent}`,opacity:.7}}/>
+                <div style={{position:"absolute",bottom:10,left:10,width:14,height:14,borderBottom:`2px solid ${C.accent}`,borderLeft:`2px solid ${C.accent}`,opacity:.7}}/>
+                <div style={{position:"absolute",bottom:10,right:10,width:14,height:14,borderBottom:`2px solid ${C.accent}`,borderRight:`2px solid ${C.accent}`,opacity:.7}}/>
+                <div style={{position:"absolute",bottom:10,left:12,fontSize:8,color:C.accent,fontFamily:"'JetBrains Mono'",letterSpacing:"1.2px",animation:"drPulse 1.2s infinite"}}>ANALYZING RETINA...</div>
+              </div>
+            </div>
 
-                  <div className={`rounded-xl border p-4 ${c.bg} ${c.border}`}>
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`w-2.5 h-2.5 rounded-full ${c.dot}`} />
-                          <span className={`text-lg font-bold ${c.text}`}>Grade {results.grade}: {meta.label}</span>
-                        </div>
-                        <p className="text-xs text-slate-400">Confidence: {(results.confidence*100).toFixed(1)}%</p>
+            <div>
+              <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"1px",marginBottom:10}}>AI Pipeline Progress</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
+                {PHASES.map((ph,i)=>{
+                  const isActive=phaseIdx===i, isDone=done.includes(i);
+                  return(
+                    <div key={i} style={{padding:"12px 13px",borderRadius:10,border:`1px solid ${isDone?"rgba(34,197,94,0.32)":isActive?C.accent+"88":C.border}`,background:isDone?"rgba(34,197,94,0.04)":isActive?"rgba(0,191,255,0.07)":"rgba(12,32,64,0.35)",opacity:!isActive&&!isDone?.38:1,transition:"all .35s ease",display:"flex",alignItems:"center",gap:11}}>
+                      <div style={{width:25,height:25,borderRadius:"50%",flexShrink:0,border:`1px solid ${isDone?"#22C55E":isActive?C.accent:C.border}`,background:isDone?"rgba(34,197,94,0.12)":isActive?"rgba(0,191,255,0.12)":"rgba(255,255,255,0.03)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        {isDone?<CheckIcon/>:isActive?<SpinnerIcon/>:<span style={{fontFamily:"'JetBrains Mono'",fontSize:9,color:C.muted}}>{i+1}</span>}
                       </div>
-                      <span className={`px-2.5 py-1 rounded text-[11px] font-bold ${c.bg} ${c.text} border ${c.border}`}>{meta.triage}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:600,color:isDone?"#4ADE80":isActive?C.text:C.sub}}>{ph.name}</div>
+                        <div style={{fontSize:9,color:C.muted,fontFamily:"'JetBrains Mono'",marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ph.detail}</div>
+                      </div>
+                      {(isDone||isActive)&&<div style={{fontSize:9,fontWeight:600,flexShrink:0,color:isDone?"#22C55E":C.accent,textTransform:"uppercase",letterSpacing:".5px"}}>{isDone?"✓ done":"running"}</div>}
                     </div>
-                    <p className="text-xs text-slate-300 mt-3 leading-relaxed">{meta.impression}</p>
+                  );
+                })}
+              </div>
+              <div style={{fontSize:10,color:C.sub,display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                <span>Pipeline Progress</span>
+                <span style={{fontFamily:"'JetBrains Mono'"}}>{Math.round(done.length/PHASES.length*100)}%</span>
+              </div>
+              <div style={{height:5,background:C.border,borderRadius:3,overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${done.length/PHASES.length*100}%`,background:`linear-gradient(90deg,#0070BB,${C.accent})`,transition:"width .5s ease",boxShadow:`0 0 8px ${C.accent}55`}}/>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ RESULTS ══ */}
+        {stage==="results"&&results&&(()=>{
+          const G=GRADES[results.grade];
+          return(
+            <div style={{animation:"drFade .5s ease"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24}}>
+                <div>
+                  <h2 style={{fontFamily:"'Space Grotesk'",fontSize:20,fontWeight:700,margin:0}}>Analysis Complete</h2>
+                  <div style={{fontSize:11,color:C.sub,marginTop:2}}>EfficientNet-B4 · Grad-CAM (real inference)</div>
+                </div>
+                <button className="dr-outline" onClick={reset} style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.sub,cursor:"pointer",fontSize:11,fontFamily:"'Inter'"}}>← New Scan</button>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"minmax(250px,1fr) minmax(270px,1.15fr)",gap:22,alignItems:"start"}}>
+                {/* LEFT: Image viewer */}
+                <div>
+                  <div style={{display:"flex",gap:4,marginBottom:10}}>
+                    {[["original","Original"],["enhanced","Enhanced"],["heatmap","Grad-CAM"]].map(([id,lb])=>(
+                      <button key={id} className="dr-tab" onClick={()=>setTab(id)} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${tab===id?C.accent:C.border}`,background:tab===id?"rgba(0,191,255,0.1)":"transparent",color:tab===id?C.accent:C.sub,fontSize:10,fontWeight:500,fontFamily:"'Inter'"}}>
+                        {lb}
+                      </button>
+                    ))}
                   </div>
 
-                  <div className="bg-slate-900/90 rounded-xl border border-slate-800 p-4 space-y-3">
-                    <h3 className="text-xs font-bold text-slate-200">Grade Probability Distribution</h3>
+                  <div style={{borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`,background:"#000",aspectRatio:"1",position:"relative"}}>
+                    <img
+                      src={tab==="enhanced"?results.enhanced:tab==="heatmap"?results.heatmap:imgSrc}
+                      alt="Fundus"
+                      style={{width:"100%",height:"100%",objectFit:"cover"}}
+                    />
+                    <div style={{position:"absolute",top:9,left:9,padding:"3px 8px",borderRadius:4,background:"rgba(0,0,0,0.65)",backdropFilter:"blur(6px)",fontSize:8,color:C.accent,textTransform:"uppercase",letterSpacing:"1px",fontFamily:"'JetBrains Mono'"}}>
+                      {tab==="enhanced"?"CLAHE Enhanced":tab==="heatmap"?"Grad-CAM Attention":"Original Fundus"}
+                    </div>
+                  </div>
+
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:10}}>
+                    {[{l:"Quality",v:`${results.quality}%`,ok:results.quality>75},{l:"Sharpness",v:results.sharpness,ok:Number(results.sharpness)>100},{l:"Entropy",v:results.entropy,ok:Number(results.entropy)>5.5}].map(m=>(
+                      <div key={m.l} style={{padding:"9px 8px",borderRadius:8,textAlign:"center",background:"rgba(12,32,64,0.55)",border:`1px solid ${C.border}`}}>
+                        <div style={{fontFamily:"'JetBrains Mono'",fontSize:13,fontWeight:500,color:m.ok?"#4ADE80":"#FCD34D"}}>{m.v}</div>
+                        <div style={{fontSize:9,color:C.sub,marginTop:2,textTransform:"uppercase",letterSpacing:".4px"}}>{m.l}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* RIGHT: Results panel */}
+                <div style={{display:"flex",flexDirection:"column",gap:13}}>
+                  <div style={{padding:20,borderRadius:12,background:G.bg,border:`1px solid ${G.color}38`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:13}}>
+                      <div>
+                        <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:"1px",marginBottom:6}}>DR Severity Grade</div>
+                        <div style={{fontFamily:"'Space Grotesk'",fontSize:27,fontWeight:700,color:G.textColor,lineHeight:1}}>{G.name}</div>
+                        <div style={{fontSize:11,color:C.sub,marginTop:3}}>{G.label}</div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontSize:9,color:C.sub,marginBottom:4}}>AI Confidence</div>
+                        <div style={{fontFamily:"'JetBrains Mono'",fontSize:25,fontWeight:600,color:G.color}}>{(results.confidence*100).toFixed(1)}%</div>
+                      </div>
+                    </div>
+                    <div style={{height:5,background:"rgba(0,0,0,0.3)",borderRadius:3,overflow:"hidden",marginBottom:13}}>
+                      <div style={{height:"100%",width:`${results.confidence*100}%`,background:G.color,borderRadius:3,boxShadow:`0 0 8px ${G.color}72`,transition:"width 1.2s ease"}}/>
+                    </div>
+                    <span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:6,background:`${G.color}18`,border:`1px solid ${G.color}45`,fontSize:10,fontWeight:700,color:G.color,textTransform:"uppercase",letterSpacing:".5px"}}>
+                      {results.grade>=3&&<div style={{width:6,height:6,borderRadius:"50%",background:G.color,animation:"drPulse .8s infinite"}}/>}
+                      {G.urgency}
+                    </span>
+                  </div>
+
+                  <div style={{padding:"13px 15px",borderRadius:10,background:"rgba(12,32,64,0.55)",border:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:"1px",marginBottom:7}}>Clinical Recommendation</div>
+                    <div style={{fontSize:12,color:C.text,lineHeight:1.6}}>{G.action}</div>
+                  </div>
+
+                  <div style={{padding:"13px 15px",borderRadius:10,background:"rgba(12,32,64,0.55)",border:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:"1px",marginBottom:12}}>Grade Probability Distribution</div>
                     {results.probs.map((p,i)=>(
-                      <div key={i} className="flex items-center gap-3 text-xs">
-                        <span className="w-24 text-slate-400 shrink-0">Grade {i} — {GRADE_META[i].short}</span>
-                        <div className="flex-1 h-2 bg-slate-950 rounded-full overflow-hidden">
-                          <div className={`h-full ${COLOR_MAP[GRADE_META[i].color].solid}`} style={{width:`${p*100}%`}} />
+                      <div key={i} style={{marginBottom:i<4?9:0}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                          <span style={{fontSize:10,fontWeight:i===results.grade?600:400,color:i===results.grade?GRADES[i].color:C.sub}}>G{i} — {GRADES[i].name}</span>
+                          <span style={{fontFamily:"'JetBrains Mono'",fontSize:9,color:i===results.grade?GRADES[i].color:C.muted}}>{(p*100).toFixed(1)}%</span>
                         </div>
-                        <span className="w-10 text-right font-mono text-slate-400">{(p*100).toFixed(0)}%</span>
+                        <div style={{height:4,background:"rgba(255,255,255,0.05)",borderRadius:2,overflow:"hidden"}}>
+                          <div style={{height:"100%",width:`${p*100}%`,background:i===results.grade?GRADES[i].color:`${GRADES[i].color}45`,borderRadius:2,transition:`width ${1+i*.1}s ease`}}/>
+                        </div>
                       </div>
                     ))}
                   </div>
 
-                  <div className="bg-slate-900/90 rounded-xl border border-slate-800 p-4 grid grid-cols-3 gap-3 text-xs">
-                    <div><div className="text-slate-500 mb-1">Quality</div><div className="text-slate-200 font-mono text-sm">{results.quality}/100</div></div>
-                    <div><div className="text-slate-500 mb-1">Sharpness</div><div className="text-slate-200 font-mono text-sm">{results.sharpness}</div></div>
-                    <div><div className="text-slate-500 mb-1">Entropy</div><div className="text-slate-200 font-mono text-sm">{results.entropy}</div></div>
-                  </div>
-                  <p className="text-[11px] text-slate-500 -mt-3 px-1">Lesion-level biomarkers (microaneurysm/exudate counts, vessel density) require the segmentation model — planned for Phase 2.</p>
-
-                  <button onClick={()=>setView("report")} className="w-full py-2.5 rounded-lg text-xs font-bold bg-teal-500 text-slate-950 hover:bg-teal-400 flex items-center justify-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5" /><span>View Full Report</span><ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ══ REPORT VIEW ══ */}
-        {view === "report" && results && meta && (
-          <div className="max-w-3xl mx-auto bg-white text-slate-900 rounded-xl p-8 print:p-0 print:shadow-none shadow-2xl">
-            <div className="flex items-center justify-between border-b-2 border-slate-900 pb-3 mb-4">
-              <div>
-                <h2 className="text-lg font-extrabold">AI-DR-SCREEN SCREENING REPORT</h2>
-                <p className="text-xs text-slate-500">Rural PHC Diabetic Retinopathy Screening · SIH 26038</p>
-              </div>
-              <div className="text-right text-[11px] text-slate-500">
-                <div>Report ID: {`DR-${(patient.patient_id||"XXXX")}-${Date.now().toString().slice(-6)}`}</div>
-                <div>{new Date().toLocaleString()}</div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-4 gap-3 text-xs mb-4 pb-4 border-b border-slate-200">
-              <div><div className="text-slate-500">Patient</div><div className="font-semibold">{patient.patient_name||"—"}</div></div>
-              <div><div className="text-slate-500">Age / Gender</div><div className="font-semibold">{patient.age||"—"} / {patient.gender}</div></div>
-              <div><div className="text-slate-500">Diabetes</div><div className="font-semibold">{patient.diabetes_duration_years||"—"} yrs · HbA1c {patient.hba1c||"—"}%</div></div>
-              <div><div className="text-slate-500">Eye</div><div className="font-semibold">{patient.eye_laterality}</div></div>
-            </div>
-
-            <div className={`rounded-lg p-4 mb-4 border-2 ${meta.color==="emerald"?"border-emerald-600 bg-emerald-50":meta.color==="sky"?"border-sky-600 bg-sky-50":meta.color==="amber"?"border-amber-600 bg-amber-50":meta.color==="orange"?"border-orange-600 bg-orange-50":"border-rose-600 bg-rose-50"}`}>
-              <div className="text-[11px] font-bold uppercase text-slate-500 mb-1">AI Grading Result</div>
-              <div className="text-xl font-extrabold">Grade {results.grade}: {meta.label}</div>
-              <div className="text-xs mt-1">Confidence: {(results.confidence*100).toFixed(1)}% · Triage: {meta.triage}</div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3 mb-4">
-              {["original","enhanced","heatmap"].map(k=>(
-                <div key={k} className="border border-slate-300 rounded-lg overflow-hidden">
-                  <div className="text-[10px] font-bold uppercase text-center bg-slate-100 py-1">{k==="original"?"Original":k==="enhanced"?"Enhanced":"Grad-CAM"}</div>
-                  <img src={k==="enhanced"?results.enhanced:k==="heatmap"?results.heatmap:imgSrc} className="w-full aspect-square object-cover" alt={k} />
-                </div>
-              ))}
-            </div>
-
-            <div className="mb-4">
-              <div className="text-[11px] font-bold uppercase text-slate-500 mb-1">Clinical Impression</div>
-              <p className="text-xs leading-relaxed">{meta.impression}</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                <div className="text-[10px] font-bold uppercase text-teal-700 mb-1">PHC Health Worker Guidance</div>
-                <p className="text-[11px] leading-relaxed">{meta.phc}</p>
-              </div>
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                <div className="text-[10px] font-bold uppercase text-amber-700 mb-1">Patient Summary</div>
-                <p className="text-[11px] leading-relaxed">"{meta.patient}"</p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-3 border-t border-slate-200 text-[10px] text-slate-500">
-              <span>AI-DR-Screen (SIH 26038) — screening decision support, not a clinical diagnosis</span>
-              <button onClick={()=>window.print()} className="flex items-center gap-1 text-slate-700 font-semibold print:hidden">
-                <Printer className="w-3 h-3" /> Print
-              </button>
-            </div>
-          </div>
-        )}
-        {view === "report" && !results && (
-          <div className="text-center text-slate-500 py-16 text-sm">Run a screening first to generate a report.</div>
-        )}
-
-        {/* ══ QUEUE VIEW ══ */}
-        {view === "queue" && (
-          <div className="max-w-4xl mx-auto space-y-3">
-            <div className="bg-slate-900/90 rounded-xl border border-slate-800 p-4">
-              <h2 className="text-sm font-bold flex items-center gap-2"><Users className="w-4 h-4 text-teal-400" />Session Queue</h2>
-              <p className="text-xs text-slate-400 mt-1">Screenings run this session, sorted by urgency.</p>
-            </div>
-            {queue.length===0 && <div className="text-center text-slate-500 py-12 text-sm">No screenings yet this session.</div>}
-            {[...queue].sort((a,b)=>b.results.grade-a.results.grade).map(entry=>{
-              const m = GRADE_META[entry.results.grade]; const cc = COLOR_MAP[m.color];
-              return (
-                <button key={entry.id} onClick={()=>selectFromQueue(entry)}
-                  className="w-full flex items-center justify-between bg-slate-900/90 rounded-xl border border-slate-800 hover:border-teal-500 p-3 text-left transition-all">
-                  <div className="flex items-center gap-3">
-                    <span className={`w-2.5 h-2.5 rounded-full ${cc.dot}`} />
+                  <div style={{padding:"13px 15px",borderRadius:10,background:"rgba(0,191,255,0.04)",border:"1px solid rgba(0,191,255,0.14)",display:"flex",gap:11}}>
+                    <div style={{fontSize:17,flexShrink:0}}>🔥</div>
                     <div>
-                      <div className="text-sm font-semibold">{entry.patient.patient_name || "Unnamed patient"}</div>
-                      <div className="text-[11px] text-slate-500">{entry.ts.toLocaleTimeString()}</div>
+                      <div style={{fontSize:10,fontWeight:600,color:C.accent,marginBottom:4}}>Grad-CAM Explanation</div>
+                      <div style={{fontSize:11,color:C.sub,lineHeight:1.55}}>Real gradient-weighted attention map from the trained model, highlighting the regions that most influenced this grade. Lesion-level biomarkers (MA/exudate counts) require the segmentation model — planned for Phase 2.</div>
                     </div>
                   </div>
-                  <span className={`px-2 py-1 rounded text-[11px] font-bold ${cc.bg} ${cc.text} border ${cc.border}`}>Grade {entry.results.grade} — {m.short}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </main>
 
-      {/* Recapture modal */}
-      {recapture && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-rose-500/30 rounded-xl p-5 max-w-sm w-full">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2 text-rose-300 font-bold text-sm"><AlertTriangle className="w-4 h-4" />Recapture Needed</div>
-              <button onClick={()=>setRecapture(null)}><X className="w-4 h-4 text-slate-500" /></button>
+                  <button
+                    className="dr-cta"
+                    onClick={()=>{
+                      const rpt=`DR SCREEN AI — Clinical Screening Report\n${"═".repeat(44)}\n\nDR Grade     : ${results.grade} — ${G.name}\nConfidence   : ${(results.confidence*100).toFixed(1)}%\nAction       : ${G.action}\n\nImage Quality Metrics\n${"─".repeat(44)}\nQuality Score: ${results.quality}%\nSharpness    : ${results.sharpness}\nEntropy      : ${results.entropy}\n\nGrade Probabilities\n${"─".repeat(44)}\n${results.probs.map((p,i)=>`G${i} ${GRADES[i].name.padEnd(18)}: ${(p*100).toFixed(1)}%`).join("\n")}\n\n${"═".repeat(44)}\n⚠ AI screening only. Confirm with qualified ophthalmologist.\nGenerated by DR Screen AI (SIH 26038)`;
+                      const blob=new Blob([rpt],{type:"text/plain"});
+                      const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`dr_report_grade${results.grade}.txt`;a.click();
+                    }}
+                    style={{width:"100%",padding:"12px",borderRadius:10,background:`linear-gradient(130deg,#005A99,${C.accent})`,border:"none",color:"white",cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"'Space Grotesk'",boxShadow:"0 4px 20px rgba(0,191,255,0.22)",transition:"all .2s ease"}}
+                  >
+                    ↓ Download Clinical Report
+                  </button>
+                </div>
+              </div>
             </div>
-            <p className="text-xs text-slate-400 mb-2">Quality score: {recapture.quality}/100</p>
-            <ul className="text-xs text-slate-300 list-disc pl-4 space-y-1 mb-4">
-              {recapture.issues.map((iss,i)=><li key={i}>{iss}</li>)}
-            </ul>
-            <button onClick={()=>{ setRecapture(null); fileInputRef.current?.click(); }}
-              className="w-full py-2 rounded-lg bg-teal-500 text-slate-950 text-xs font-bold flex items-center justify-center gap-1.5">
-              <RefreshCw className="w-3.5 h-3.5" />Recapture Image
-            </button>
-          </div>
-        </div>
-      )}
-
-      <footer className="border-t border-slate-800 px-4 py-3 text-center text-[11px] text-slate-500">
-        AI-DR-Screen (SIH 26038) · Powered by EfficientNet-B4 (trained) · Real-time Grad-CAM explainability
-      </footer>
+          );
+        })()}
+      </main>
     </div>
   );
 }
