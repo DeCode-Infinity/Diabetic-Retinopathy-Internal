@@ -556,24 +556,40 @@ def frangi_vesselness(
 ):
     """
     Generate a clean morphology-style overlay:
-    grayscale/CLAHE retinal image + cyan vessels, yellow exudates, pink haemorrhages.
+    High-contrast retinal background + cyan vessels, yellow exudates, pink haemorrhages.
     """
 
     bgr_img = cv2.cvtColor(
         img_rgb,
         cv2.COLOR_RGB2BGR
     )
+    
+    # The green channel holds the highest native contrast for retinal features.
+    green = bgr_img[:, :, 1]
+    fov_mask = create_fov_mask(img_rgb)
 
+    # ─────────────────────────────────────────────────────────
+    # 1. EXUDATES (Yellow) - Morphological Top-Hat
+    # Extracts bright regions smaller than the kernel.
+    # ─────────────────────────────────────────────────────────
+    kernel_ex = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    tophat = cv2.morphologyEx(green, cv2.MORPH_TOPHAT, kernel_ex)
+    _, exudates_mask = cv2.threshold(tophat, 25, 255, cv2.THRESH_BINARY)
+    
+    # Clean up single-pixel noise
+    exudates_mask = cv2.morphologyEx(
+        exudates_mask, 
+        cv2.MORPH_OPEN, 
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    )
+    exudates_mask = cv2.bitwise_and(exudates_mask, fov_mask)
+
+    # ─────────────────────────────────────────────────────────
+    # 2. VESSELS (Cyan) - Frangi Filter
+    # ─────────────────────────────────────────────────────────
     green_denoised = isolate_and_denoise_green_channel(bgr_img)
     normalized_img = illumination_normalization(green_denoised)
-    
-    enhanced_gray = apply_vessel_clahe(
-        normalized_img,
-        clip_limit=2.0,
-        tile_size=(8, 8)
-    )
-
-    fov_mask = create_fov_mask(img_rgb)
+    enhanced_gray = apply_vessel_clahe(normalized_img, clip_limit=2.0)
 
     (
         vesselness_norm,
@@ -584,36 +600,51 @@ def frangi_vesselness(
         fov_mask
     )
 
-    # 1. Detect Exudates (Bright yellow regions) using Morphological Top-Hat
-    kernel_ex = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-    tophat = cv2.morphologyEx(enhanced_gray, cv2.MORPH_TOPHAT, kernel_ex)
-    _, exudates_mask = cv2.threshold(tophat, 30, 255, cv2.THRESH_BINARY)
-    exudates_mask = cv2.bitwise_and(exudates_mask, fov_mask)
+    # FIX: Frangi mistakenly traces the sharp edges of exudates as vessels.
+    # We dilate the exudate mask slightly and erase those areas from the vessel mask.
+    ex_dilated = cv2.dilate(exudates_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    vessel_mask = cv2.bitwise_and(vessel_mask, cv2.bitwise_not(ex_dilated))
 
-    # 2. Detect Haemorrhages (Dark pink regions) using blurred thresholding
-    blurred_gray = cv2.medianBlur(enhanced_gray, 35)
-    _, haem_mask = cv2.threshold(blurred_gray, 50, 255, cv2.THRESH_BINARY_INV)
+    # ─────────────────────────────────────────────────────────
+    # 3. HAEMORRHAGES (Pink) - Local Background Subtraction
+    # Extracts areas significantly darker than their immediate surroundings.
+    # ─────────────────────────────────────────────────────────
+    bg_blur = cv2.medianBlur(green, 61)
+    dark_diff = cv2.subtract(bg_blur, green)
+    _, haem_mask = cv2.threshold(dark_diff, 20, 255, cv2.THRESH_BINARY)
+
+    # Clean up and ensure haemorrhages don't overlap with detected vessels or exudates
+    haem_mask = cv2.morphologyEx(
+        haem_mask, 
+        cv2.MORPH_OPEN, 
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    )
+    haem_mask = cv2.bitwise_and(haem_mask, cv2.bitwise_not(cv2.dilate(vessel_mask, np.ones((3,3)))))
+    haem_mask = cv2.bitwise_and(haem_mask, cv2.bitwise_not(exudates_mask))
     haem_mask = cv2.bitwise_and(haem_mask, fov_mask)
 
-    # Base RGB setup
-    base_rgb = cv2.cvtColor(
-        enhanced_gray,
-        cv2.COLOR_GRAY2RGB
-    )
+    # ─────────────────────────────────────────────────────────
+    # 4. VISUAL COMPOSITE
+    # ─────────────────────────────────────────────────────────
+    # Create a punchy, high-contrast grayscale background instead of the flat normalized math-image
+    clahe_bg = cv2.createCLAHE(clipLimit=3.5, tileGridSize=(8, 8))
+    visual_bg = clahe_bg.apply(green)
+    
+    base_rgb = cv2.cvtColor(visual_bg, cv2.COLOR_GRAY2RGB)
     base_rgb[fov_mask == 0] = 0
     composite = base_rgb.astype(np.float32)
 
-    # RGB Overlay Colors
+    # Colors
     cyan = np.array([35, 205, 225], dtype=np.float32)
     yellow = np.array([255, 255, 0], dtype=np.float32)
     pink = np.array([255, 20, 147], dtype=np.float32)
 
-    alpha = 0.82
+    alpha = 0.85
 
     # Apply Overlays sequentially
     composite[vessel_mask > 0] = composite[vessel_mask > 0] * (1.0 - alpha) + cyan * alpha
-    composite[exudates_mask > 0] = composite[exudates_mask > 0] * (1.0 - alpha) + yellow * alpha
     composite[haem_mask > 0] = composite[haem_mask > 0] * (1.0 - alpha) + pink * alpha
+    composite[exudates_mask > 0] = composite[exudates_mask > 0] * (1.0 - alpha) + yellow * alpha
 
     composite = np.clip(
         composite,
