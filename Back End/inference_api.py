@@ -337,22 +337,19 @@ def create_fov_mask(img_rgb: np.ndarray) -> np.ndarray:
 def compute_frangi_vesselness(
     enhanced_gray: np.ndarray,
     fov_mask: np.ndarray,
-    sigmas=[1.0, 2.0, 3.0],
-    beta: float = 0.5,
-    c: float = 15.0
+    sigmas=(1.0, 2.0, 3.0, 4.0),
+    beta: float = 0.5
 ):
     """
-    Multiscale Hessian-based Frangi vesselness with post-processing
-    designed for a clean, thin vessel overlay.
-
-    Returns:
-        vesselness_norm : continuous vessel response image
-        vessel_mask     : cleaned binary vessel tree
-        vessel_density  : vessel fraction inside the retinal FOV
+    Multiscale Hessian vesselness tuned for an actual retinal vessel
+    overlay. The important difference from the previous version is that
+    the Frangi response is normalized per scale and c is derived from the
+    Hessian response instead of using a fixed value that suppresses nearly
+    all responses on images normalized to 0..1.
     """
 
     img_float = enhanced_gray.astype(np.float32) / 255.0
-    vesselness = np.zeros_like(img_float)
+    vesselness = np.zeros_like(img_float, dtype=np.float32)
 
     for sigma in sigmas:
         H_elems = hessian_matrix(
@@ -360,144 +357,169 @@ def compute_frangi_vesselness(
             sigma=sigma,
             order="rc"
         )
+        lambda1, lambda2 = hessian_matrix_eigvals(H_elems)
 
-        lambda1, lambda2 = hessian_matrix_eigvals(
-            H_elems
-        )
-
+        # skimage returns eigenvalues ordered by absolute magnitude.
         abs_l1 = np.abs(lambda1)
         abs_l2 = np.abs(lambda2)
 
-        # Frangi blobness ratio.
-        rb = (
-            abs_l1
-            /
-            (abs_l2 + 1e-6)
-        ) ** 2
-
-        # Structureness.
+        rb2 = (abs_l1 / (abs_l2 + 1e-7)) ** 2
         s2 = abs_l1 ** 2 + abs_l2 ** 2
 
+        # Automatic structureness scale. A fixed c=15 is far too large
+        # when the image itself has already been normalized to 0..1.
+        valid_s = np.sqrt(s2[fov_mask > 0])
+        valid_s = valid_s[np.isfinite(valid_s)]
+
+        if valid_s.size == 0:
+            continue
+
+        c = max(
+            float(np.percentile(valid_s, 90)) * 0.5,
+            1e-5
+        )
+
         vessel_sigma = (
-            np.exp(
-                -rb / (2.0 * beta ** 2)
-            )
+            np.exp(-rb2 / (2.0 * beta ** 2))
             *
             (
                 1.0
                 -
-                np.exp(
-                    -s2 / (2.0 * c ** 2)
-                )
+                np.exp(-s2 / (2.0 * c ** 2))
             )
         )
 
+        vessel_sigma[fov_mask == 0] = 0
+
+        # Normalize each scale before taking the maximum. Otherwise one
+        # numerical scale can dominate every other vessel width.
+        valid = vessel_sigma[fov_mask > 0]
+        if valid.size > 0:
+            lo, hi = np.percentile(valid, [1, 99.5])
+            vessel_sigma = np.clip(
+                (vessel_sigma - lo) / (hi - lo + 1e-8),
+                0,
+                1
+            )
+
         vesselness = np.maximum(
             vesselness,
-            vessel_sigma
+            vessel_sigma.astype(np.float32)
         )
 
-    # Restrict all calculations to the actual retinal field.
-    vesselness = vesselness * (
-        fov_mask > 0
-    )
+    vesselness[fov_mask == 0] = 0
 
-    vesselness_norm = cv2.normalize(
-        vesselness,
-        None,
-        0,
-        255,
-        cv2.NORM_MINMAX
+    vesselness_norm = (
+        np.clip(vesselness, 0, 1) * 255
     ).astype(np.uint8)
 
-    fov_values = vesselness_norm[
-        fov_mask > 0
-    ]
+    # Frangi response alone can be weak around very fine vessels.
+    # Build a classical dark-line response from the same enhanced image
+    # and use it only as a support signal for the Frangi tracing.
+    background = cv2.GaussianBlur(
+        enhanced_gray,
+        (0, 0),
+        5.0
+    )
+    dark_line = cv2.subtract(
+        background,
+        enhanced_gray
+    ).astype(np.float32)
 
-    if fov_values.size == 0:
+    dark_line[fov_mask == 0] = 0
+
+    valid_dark = dark_line[fov_mask > 0]
+    if valid_dark.size > 0:
+        dlo, dhi = np.percentile(
+            valid_dark,
+            [5, 99]
+        )
+        dark_line = np.clip(
+            (dark_line - dlo) / (dhi - dlo + 1e-8),
+            0,
+            1
+        )
+    else:
+        dark_line = np.zeros_like(
+            vesselness,
+            dtype=np.float32
+        )
+
+    # Frangi remains the dominant signal, while the dark-line response
+    # reconnects obvious vessels that have a weak Hessian response.
+    combined = (
+        0.75 * vesselness
+        +
+        0.25 * dark_line
+    )
+    combined[fov_mask == 0] = 0
+
+    valid_combined = combined[fov_mask > 0]
+
+    if valid_combined.size == 0:
         empty = np.zeros_like(
             enhanced_gray,
             dtype=np.uint8
         )
         return vesselness_norm, empty, 0.0
 
-    # A high percentile threshold avoids turning broad retinal texture,
-    # illumination gradients and lesion regions into cyan "vessels".
-    otsu_threshold, _ = cv2.threshold(
-        fov_values,
-        0,
-        255,
-        cv2.THRESH_BINARY
-        +
-        cv2.THRESH_OTSU
-    )
-
-    percentile_threshold = np.percentile(
-        fov_values,
-        88
-    )
-
-    threshold_value = max(
-        float(otsu_threshold),
-        float(percentile_threshold)
+    # Keep a relatively broad candidate set. Skeletonization will turn
+    # it into thin vessel lines, so we do not need an aggressively high
+    # threshold that makes the overlay disappear.
+    threshold = float(
+        np.percentile(
+            valid_combined,
+            76
+        )
     )
 
     vessel_mask = (
-        vesselness_norm >= threshold_value
-    ).astype(np.uint8) * 255
+        combined >= threshold
+    ).astype(np.uint8)
 
     vessel_mask = cv2.bitwise_and(
         vessel_mask,
-        fov_mask
+        (fov_mask > 0).astype(np.uint8)
     )
 
-    # Remove isolated salt-and-pepper responses.
-    vessel_mask = cv2.morphologyEx(
-        vessel_mask,
-        cv2.MORPH_OPEN,
-        cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE,
-            (3, 3)
-        ),
-        iterations=1
+    # A tiny median filter removes isolated points without deleting thin
+    # vessels, unlike the previous morphological opening.
+    vessel_mask = cv2.medianBlur(
+        vessel_mask * 255,
+        3
     )
 
-    # Remove small connected components while preserving long vessel
-    # fragments. The threshold is based on image area so it scales better
-    # across different camera resolutions.
+    # Skeletonize before component filtering so long, thin vessels are
+    # represented by their actual geometry instead of their filled area.
+    skeleton = skeletonize(
+        vessel_mask > 0
+    ).astype(np.uint8)
+
+    # Remove only tiny skeleton fragments. Long vessels survive even when
+    # their original filled region is very narrow.
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-        vessel_mask,
+        skeleton,
         connectivity=8
     )
 
-    min_component_area = max(
-        25,
-        int(enhanced_gray.size * 0.00003)
+    cleaned = np.zeros_like(
+        skeleton,
+        dtype=np.uint8
     )
 
-    cleaned = np.zeros_like(vessel_mask)
+    min_component_pixels = max(
+        12,
+        int(np.sqrt(enhanced_gray.size) * 0.08)
+    )
 
     for label in range(1, num_labels):
-        area = stats[
-            label,
-            cv2.CC_STAT_AREA
-        ]
+        if stats[label, cv2.CC_STAT_AREA] >= min_component_pixels:
+            cleaned[labels == label] = 1
 
-        if area >= min_component_area:
-            cleaned[
-                labels == label
-            ] = 255
-
-    # Skeletonize the vessel tree. This is the key step that makes the
-    # frontend output look like a vessel tracing rather than cyan blobs.
-    skeleton = skeletonize(
-        cleaned > 0
-    ).astype(np.uint8) * 255
-
-    # Slightly thicken the 1-pixel skeleton for visibility while keeping
-    # the tracing narrow.
+    # One-pixel skeletons can disappear when the frontend downsizes the
+    # base64 image. Dilate once to create a crisp but still narrow trace.
     vessel_mask = cv2.dilate(
-        skeleton,
+        cleaned * 255,
         cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE,
             (3, 3)
@@ -528,7 +550,6 @@ def compute_frangi_vesselness(
         vessel_mask,
         vessel_density
     )
-
 
 def frangi_vesselness(
     img_rgb: np.ndarray
