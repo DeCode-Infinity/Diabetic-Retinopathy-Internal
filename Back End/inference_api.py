@@ -35,7 +35,7 @@ MODEL_PATH = "checkpoints/best_model.pth"   # from train_classifier.py
 MODEL_NAME = "efficientnet_b4"
 IMAGE_SIZE = 380
 NUM_CLASSES = 5
-QUALITY_REJECT_THRESHOLD = 30   # below this, ask for a recapture instead of grading
+QUALITY_REJECT_THRESHOLD = 50   # below this, ask for a recapture instead of grading
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 app = FastAPI(title="DR Screen AI — Inference API")
@@ -83,25 +83,38 @@ def clahe_enhance(img_rgb: np.ndarray) -> np.ndarray:
 def frangi_vesselness(img_rgb: np.ndarray) -> np.ndarray:
     """Real Frangi vesselness filter (classical image processing, not a
     trained model) — highlights tubular/vessel-like structures on the
-    green channel, which has the best vessel contrast in fundus images.
-    This is a genuine computed filter response, not a segmentation model
-    (that's a Phase 2 item) — labeled as 'Vessel Enhancement' in the UI."""
+    green channel, then composites them as a cyan overlay on top of the
+    grayscale fundus image. Pure computer vision: Frangi filter +
+    percentile normalization + thresholding + alpha blending — no
+    trained model involved. Full lesion/optic-disc segmentation is a
+    planned Phase 2 item (that requires a trained model)."""
     green = img_rgb[:, :, 1].astype(np.float64) / 255.0
     inverted = 1.0 - green
     vesselness = frangi(inverted, sigmas=range(1, 4), black_ridges=False)
 
-    # Percentile-based normalization (robust to outliers, unlike min/max)
+    # Percentile-based normalization (robust to outliers)
     lo, hi = np.percentile(vesselness, [1, 99])
     v_clipped = np.clip(vesselness, lo, hi)
     v_norm = (v_clipped - lo) / (hi - lo + 1e-8)
 
-    # Gamma boost to bring faint vessels up into visible range
-    v_boosted = np.power(v_norm, 0.35)
-    v_uint8 = (v_boosted * 255).astype(np.uint8)
+    # Threshold out background noise — only strong vessel responses remain,
+    # then rescale the remaining range so real vessels are clearly visible
+    thresh = 0.35
+    alpha = np.clip((v_norm - thresh) / (1 - thresh), 0, 1)
+    alpha = np.power(alpha, 0.6)  # slight boost so thinner vessels show up
 
-    colored = cv2.applyColorMap(v_uint8, cv2.COLORMAP_TURBO)
-    colored_rgb = cv2.cvtColor(colored, cv2.COLOR_BGR2RGB)
-    return colored_rgb
+    # Grayscale background (same image, desaturated) — matches the
+    # reference: cyan vessels over a grayscale fundus, not a full heatmap
+    gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY).astype(np.float64)
+    gray_rgb = np.stack([gray, gray, gray], axis=-1)
+
+    cyan = np.zeros_like(gray_rgb)
+    cyan[:, :, 1] = 255.0  # G
+    cyan[:, :, 2] = 255.0  # B  → cyan
+
+    alpha_3ch = np.dstack([alpha, alpha, alpha])
+    composite = gray_rgb * (1 - alpha_3ch) + cyan * alpha_3ch
+    return composite.astype(np.uint8)
 
 # ─────────────────────────── Routes ───────────────────────────
 @app.get("/health")

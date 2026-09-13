@@ -136,6 +136,7 @@ const PHASES = [
   { name: "CLAHE Enhancement",     detail: "green channel enhancement" },
   { name: "Deep Learning Grading", detail: "EfficientNet-B4 inference" },
   { name: "Grad-CAM Generation",   detail: "gradient-weighted attention mapping" },
+  { name: "Finalizing Results",    detail: "compiling report & metrics" },
 ];
 
 // ─── SCREENING FILTER (gatekeeper stage, runs BEFORE the DR pipeline) ────────
@@ -202,17 +203,20 @@ export default function DRScreenAI() {
     setImgSrc(dataUrl); setStage("processing"); setError("");
     setPhaseIdx(-1); setDone([]); setTab("original"); setResults(null);
 
-    // step through phases visually every ~650ms, looping until real data arrives
+    // step through phases visually every ~650ms, holding on the last phase
+    // (not looping) once reached, so it never looks stuck-then-restarting
     let i = 0;
     const stepMs = 650;
     const stepper = setInterval(() => {
-      setPhaseIdx(i % PHASES.length);
+      const clampedIdx = Math.min(i, PHASES.length - 1);
+      setPhaseIdx(clampedIdx);
       setDone(prev => {
         const next = [...prev];
-        if (i > 0 && !next.includes((i - 1) % PHASES.length)) next.push((i - 1) % PHASES.length);
+        const prevIdx = i - 1;
+        if (prevIdx >= 0 && prevIdx < PHASES.length - 1 && !next.includes(prevIdx)) next.push(prevIdx);
         return next;
       });
-      i++;
+      if (i < PHASES.length - 1) i++;
     }, stepMs);
     timers.current.push(stepper);
 
@@ -234,8 +238,8 @@ export default function DRScreenAI() {
       .then(data => {
         if (!data) return;
         clearInterval(stepper);
-        setDone([0,1,2,3]);
-        setPhaseIdx(3);
+        setDone([0,1,2,3,4]);
+        setPhaseIdx(4);
         setTimeout(() => {
           setResults(data);
           setStage("results");
@@ -290,6 +294,7 @@ export default function DRScreenAI() {
         @keyframes drPulse{0%,100%{opacity:1}50%{opacity:0.3}}
         @keyframes drSweep{to{transform:rotate(360deg)}}
         @keyframes drFade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes drScanBeam{0%{top:-10%}100%{top:110%}}
         .dr-upload:hover{border-color:#00BFFF!important;background:rgba(0,191,255,0.05)!important}
         .dr-tab{transition:all .15s ease!important;cursor:pointer}
         .dr-tab:hover{border-color:#00BFFF!important;color:#00BFFF!important}
@@ -431,6 +436,9 @@ export default function DRScreenAI() {
                   <div style={{position:"absolute",top:"50%",left:"50%",width:"50%",height:"1px",background:`linear-gradient(to right,${C.accent}CC,transparent)`,transformOrigin:"left center"}}/>
                 </div>
                 <div style={{position:"absolute",top:"50%",left:"50%",width:6,height:6,borderRadius:"50%",background:C.accent,boxShadow:`0 0 12px ${C.accent}`,transform:"translate(-50%,-50%)",animation:"drPulse 1s infinite"}}/>
+                {/* Horizontal scanning beam sweeping top to bottom */}
+                <div style={{position:"absolute",left:0,right:0,height:"18%",background:`linear-gradient(to bottom, transparent, ${C.accent}33, ${C.accent}55, ${C.accent}33, transparent)`,animation:"drScanBeam 2.2s linear infinite",pointerEvents:"none"}}/>
+                <div style={{position:"absolute",left:0,right:0,height:2,background:C.accent,boxShadow:`0 0 14px 3px ${C.accent}`,animation:"drScanBeam 2.2s linear infinite",pointerEvents:"none"}}/>
                 <div style={{position:"absolute",top:10,left:10,width:14,height:14,borderTop:`2px solid ${C.accent}`,borderLeft:`2px solid ${C.accent}`,opacity:.7}}/>
                 <div style={{position:"absolute",top:10,right:10,width:14,height:14,borderTop:`2px solid ${C.accent}`,borderRight:`2px solid ${C.accent}`,opacity:.7}}/>
                 <div style={{position:"absolute",bottom:10,left:10,width:14,height:14,borderBottom:`2px solid ${C.accent}`,borderLeft:`2px solid ${C.accent}`,opacity:.7}}/>
