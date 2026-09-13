@@ -6,5 +6,6 @@ pillow
 numpy
 python-multipart
 timm
-grad-cam
+pytorch-grad-cam
 opencv-python-headless
+scikit-image
