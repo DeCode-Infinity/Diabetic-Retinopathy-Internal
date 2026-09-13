@@ -783,6 +783,15 @@ async def predict(
         ]
     )[0]
 
+    # --- FIX: Mask out non-retinal edge artifacts ---
+    fov_mask = create_fov_mask(img_rgb)
+    fov_mask_resized = cv2.resize(
+        fov_mask, 
+        (IMAGE_SIZE, IMAGE_SIZE)
+    )
+    grayscale_cam[fov_mask_resized == 0] = 0.0
+    # ------------------------------------------------
+
     rgb_for_cam = (
         cv2.resize(
             img_rgb,
