@@ -294,7 +294,10 @@ export default function DRScreenAI() {
         @keyframes drPulse{0%,100%{opacity:1}50%{opacity:0.3}}
         @keyframes drSweep{to{transform:rotate(360deg)}}
         @keyframes drFade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes drScanBeam{0%{top:-10%}100%{top:110%}}
+        @keyframes drScanBeam{0%{top:-25%}100%{top:125%}}
+        @keyframes drRingSpin{to{transform:rotate(360deg)}}
+        @keyframes drGridShift{0%{background-position-y:0}100%{background-position-y:24px}}
+        @keyframes drBorderGlow{0%,100%{box-shadow:0 0 12px 1px rgba(0,191,255,0.25)}50%{box-shadow:0 0 26px 4px rgba(0,191,255,0.55)}}
         .dr-upload:hover{border-color:#00BFFF!important;background:rgba(0,191,255,0.05)!important}
         .dr-tab{transition:all .15s ease!important;cursor:pointer}
         .dr-tab:hover{border-color:#00BFFF!important;color:#00BFFF!important}
@@ -427,22 +430,33 @@ export default function DRScreenAI() {
           <div className="dr-processing-grid" style={{animation:"drFade .35s ease"}}>
             <div>
               <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"1px",marginBottom:10}}>Input Fundus Image</div>
-              <div style={{borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`,aspectRatio:"1",background:"#000",position:"relative"}}>
-                <img src={imgSrc} alt="" style={{width:"100%",height:"100%",objectFit:"cover",opacity:.8}}/>
-                {[0.36,0.52,0.68].map((r,i)=>(
-                  <div key={i} style={{position:"absolute",top:"50%",left:"50%",width:`${r*100}%`,height:`${r*100}%`,borderRadius:"50%",border:`1px solid rgba(0,191,255,${0.2-i*0.05})`,transform:"translate(-50%,-50%)"}}/>
-                ))}
-                <div style={{position:"absolute",top:"50%",left:"50%",width:"68%",height:"68%",borderRadius:"50%",transform:"translate(-50%,-50%)",animation:"drSweep 2.4s linear infinite",transformOrigin:"center"}}>
-                  <div style={{position:"absolute",top:"50%",left:"50%",width:"50%",height:"1px",background:`linear-gradient(to right,${C.accent}CC,transparent)`,transformOrigin:"left center"}}/>
+              <div style={{borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`,aspectRatio:"1",background:"#000",position:"relative",animation:"drBorderGlow 2.6s ease-in-out infinite"}}>
+                <img src={imgSrc} alt="" style={{width:"100%",height:"100%",objectFit:"cover",opacity:.75,filter:"saturate(1.15)"}}/>
+
+                {/* Scanline grid texture, slowly drifting */}
+                <div style={{position:"absolute",inset:0,pointerEvents:"none",backgroundImage:`repeating-linear-gradient(to bottom, transparent 0px, transparent 3px, rgba(0,191,255,0.07) 4px)`,animation:"drGridShift 1.4s linear infinite"}}/>
+
+                {/* Spinning conic ring around the edge */}
+                <div style={{position:"absolute",inset:-2,borderRadius:"50%",padding:2,pointerEvents:"none"}}>
+                  <div style={{width:"100%",height:"100%",borderRadius:"50%",background:`conic-gradient(from 0deg, transparent 0%, ${C.accent} 12%, transparent 26%)`,animation:"drRingSpin 1.8s linear infinite",WebkitMask:"radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))",mask:"radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))"}}/>
                 </div>
-                <div style={{position:"absolute",top:"50%",left:"50%",width:6,height:6,borderRadius:"50%",background:C.accent,boxShadow:`0 0 12px ${C.accent}`,transform:"translate(-50%,-50%)",animation:"drPulse 1s infinite"}}/>
-                {/* Horizontal scanning beam sweeping top to bottom */}
-                <div style={{position:"absolute",left:0,right:0,height:"18%",background:`linear-gradient(to bottom, transparent, ${C.accent}33, ${C.accent}55, ${C.accent}33, transparent)`,animation:"drScanBeam 2.2s linear infinite",pointerEvents:"none"}}/>
-                <div style={{position:"absolute",left:0,right:0,height:2,background:C.accent,boxShadow:`0 0 14px 3px ${C.accent}`,animation:"drScanBeam 2.2s linear infinite",pointerEvents:"none"}}/>
-                <div style={{position:"absolute",top:10,left:10,width:14,height:14,borderTop:`2px solid ${C.accent}`,borderLeft:`2px solid ${C.accent}`,opacity:.7}}/>
-                <div style={{position:"absolute",top:10,right:10,width:14,height:14,borderTop:`2px solid ${C.accent}`,borderRight:`2px solid ${C.accent}`,opacity:.7}}/>
-                <div style={{position:"absolute",bottom:10,left:10,width:14,height:14,borderBottom:`2px solid ${C.accent}`,borderLeft:`2px solid ${C.accent}`,opacity:.7}}/>
-                <div style={{position:"absolute",bottom:10,right:10,width:14,height:14,borderBottom:`2px solid ${C.accent}`,borderRight:`2px solid ${C.accent}`,opacity:.7}}/>
+
+                {[0.36,0.52,0.68].map((r,i)=>(
+                  <div key={i} style={{position:"absolute",top:"50%",left:"50%",width:`${r*100}%`,height:`${r*100}%`,borderRadius:"50%",border:`1px solid rgba(0,191,255,${0.22-i*0.05})`,transform:"translate(-50%,-50%)"}}/>
+                ))}
+                <div style={{position:"absolute",top:"50%",left:"50%",width:"68%",height:"68%",borderRadius:"50%",transform:"translate(-50%,-50%)",animation:"drSweep 1.6s linear infinite",transformOrigin:"center"}}>
+                  <div style={{position:"absolute",top:"50%",left:"50%",width:"50%",height:"2px",background:`linear-gradient(to right,${C.accent}FF,transparent)`,transformOrigin:"left center",boxShadow:`0 0 8px ${C.accent}`}}/>
+                </div>
+                <div style={{position:"absolute",top:"50%",left:"50%",width:7,height:7,borderRadius:"50%",background:C.accent,boxShadow:`0 0 16px 4px ${C.accent}`,transform:"translate(-50%,-50%)",animation:"drPulse .8s infinite"}}/>
+
+                {/* Bright horizontal scanning beam sweeping top to bottom */}
+                <div style={{position:"absolute",left:0,right:0,height:"22%",background:`linear-gradient(to bottom, transparent, ${C.accent}22, ${C.accent}88, ${C.accent}22, transparent)`,animation:"drScanBeam 1.9s ease-in-out infinite",pointerEvents:"none",filter:"blur(1px)"}}/>
+                <div style={{position:"absolute",left:0,right:0,height:2,background:C.accent,boxShadow:`0 0 20px 5px ${C.accent}`,animation:"drScanBeam 1.9s ease-in-out infinite",pointerEvents:"none"}}/>
+
+                <div style={{position:"absolute",top:10,left:10,width:16,height:16,borderTop:`2px solid ${C.accent}`,borderLeft:`2px solid ${C.accent}`,opacity:.9,animation:"drPulse 1.6s infinite"}}/>
+                <div style={{position:"absolute",top:10,right:10,width:16,height:16,borderTop:`2px solid ${C.accent}`,borderRight:`2px solid ${C.accent}`,opacity:.9,animation:"drPulse 1.6s infinite"}}/>
+                <div style={{position:"absolute",bottom:10,left:10,width:16,height:16,borderBottom:`2px solid ${C.accent}`,borderLeft:`2px solid ${C.accent}`,opacity:.9,animation:"drPulse 1.6s infinite"}}/>
+                <div style={{position:"absolute",bottom:10,right:10,width:16,height:16,borderBottom:`2px solid ${C.accent}`,borderRight:`2px solid ${C.accent}`,opacity:.9,animation:"drPulse 1.6s infinite"}}/>
                 <div style={{position:"absolute",bottom:10,left:12,fontSize:8,color:C.accent,fontFamily:"'JetBrains Mono'",letterSpacing:"1.2px",animation:"drPulse 1.2s infinite"}}>ANALYZING RETINA...</div>
               </div>
             </div>
