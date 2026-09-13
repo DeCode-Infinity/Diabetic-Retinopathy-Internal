@@ -13,7 +13,7 @@ set NGROK_DOMAIN=outgrow-genetics-stylist.ngrok-free.dev
 
 echo Launching Windows Terminal with backend + ngrok tabs...
 
-wt -w 0 new-tab -d "%BACKEND_DIR%" --title "Netra AI - Backend" cmd /k "uvicorn inference_api:app --host 0.0.0.0 --port 8000" ; new-tab -d "%BACKEND_DIR%" --title "Netra AI - ngrok" cmd /k "timeout /t 5 /nobreak && ngrok http --domain=%NGROK_DOMAIN% 8000"
+wt -w 0 new-tab -d "%BACKEND_DIR%" --title "Netra AI - Backend" cmd /k "uvicorn inference_api:app --host 0.0.0.0 --port 8000" ; new-tab -d "%BACKEND_DIR%" --title "Netra AI - ngrok" cmd /k "set NGROK_DOMAIN=%NGROK_DOMAIN% && wait_and_start_ngrok.bat"
 
 echo.
 echo Two tabs launched in Windows Terminal: Backend and ngrok.
