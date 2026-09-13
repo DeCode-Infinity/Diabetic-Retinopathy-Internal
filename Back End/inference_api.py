@@ -555,8 +555,8 @@ def frangi_vesselness(
     img_rgb: np.ndarray
 ):
     """
-    Generate a clean morphology-style Frangi vessel overlay:
-    grayscale/CLAHE retinal image + thin cyan vessel tracing.
+    Generate a clean morphology-style overlay:
+    grayscale/CLAHE retinal image + cyan vessels, yellow exudates, pink haemorrhages.
     """
 
     bgr_img = cv2.cvtColor(
@@ -564,35 +564,17 @@ def frangi_vesselness(
         cv2.COLOR_RGB2BGR
     )
 
-    # 1. Green channel denoising.
-    green_denoised = (
-        isolate_and_denoise_green_channel(
-            bgr_img
-        )
+    green_denoised = isolate_and_denoise_green_channel(bgr_img)
+    normalized_img = illumination_normalization(green_denoised)
+    
+    enhanced_gray = apply_vessel_clahe(
+        normalized_img,
+        clip_limit=2.0,
+        tile_size=(8, 8)
     )
 
-    # 2. Retinal illumination normalization.
-    normalized_img = (
-        illumination_normalization(
-            green_denoised
-        )
-    )
+    fov_mask = create_fov_mask(img_rgb)
 
-    # 3. CLAHE for vessel contrast.
-    enhanced_gray = (
-        apply_vessel_clahe(
-            normalized_img,
-            clip_limit=2.0,
-            tile_size=(8, 8)
-        )
-    )
-
-    # 4. Valid retinal field-of-view.
-    fov_mask = create_fov_mask(
-        img_rgb
-    )
-
-    # 5. Clean multiscale Frangi vessel extraction.
     (
         vesselness_norm,
         vessel_mask,
@@ -602,39 +584,36 @@ def frangi_vesselness(
         fov_mask
     )
 
-    # Use the enhanced grayscale image as the background, matching the
-    # morphology-style output shown in the reference.
+    # 1. Detect Exudates (Bright yellow regions) using Morphological Top-Hat
+    kernel_ex = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    tophat = cv2.morphologyEx(enhanced_gray, cv2.MORPH_TOPHAT, kernel_ex)
+    _, exudates_mask = cv2.threshold(tophat, 30, 255, cv2.THRESH_BINARY)
+    exudates_mask = cv2.bitwise_and(exudates_mask, fov_mask)
+
+    # 2. Detect Haemorrhages (Dark pink regions) using blurred thresholding
+    blurred_gray = cv2.medianBlur(enhanced_gray, 35)
+    _, haem_mask = cv2.threshold(blurred_gray, 50, 255, cv2.THRESH_BINARY_INV)
+    haem_mask = cv2.bitwise_and(haem_mask, fov_mask)
+
+    # Base RGB setup
     base_rgb = cv2.cvtColor(
         enhanced_gray,
         cv2.COLOR_GRAY2RGB
     )
-
-    # Keep the invalid camera background dark.
     base_rgb[fov_mask == 0] = 0
+    composite = base_rgb.astype(np.float32)
 
-    composite = base_rgb.astype(
-        np.float32
-    )
-
-    # Thin cyan vessel tracing.
-    cyan = np.array(
-        [35, 205, 225],
-        dtype=np.float32
-    )
+    # RGB Overlay Colors
+    cyan = np.array([35, 205, 225], dtype=np.float32)
+    yellow = np.array([255, 255, 0], dtype=np.float32)
+    pink = np.array([255, 20, 147], dtype=np.float32)
 
     alpha = 0.82
 
-    vessel_pixels = vessel_mask > 0
-
-    composite[vessel_pixels] = (
-        composite[vessel_pixels]
-        *
-        (1.0 - alpha)
-        +
-        cyan
-        *
-        alpha
-    )
+    # Apply Overlays sequentially
+    composite[vessel_mask > 0] = composite[vessel_mask > 0] * (1.0 - alpha) + cyan * alpha
+    composite[exudates_mask > 0] = composite[exudates_mask > 0] * (1.0 - alpha) + yellow * alpha
+    composite[haem_mask > 0] = composite[haem_mask > 0] * (1.0 - alpha) + pink * alpha
 
     composite = np.clip(
         composite,
@@ -646,7 +625,6 @@ def frangi_vesselness(
         composite,
         vessel_density
     )
-
 # ─────────────────────────── Routes ───────────────────────────
 
 @app.get("/health")
