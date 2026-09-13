@@ -195,6 +195,12 @@ export default function DRScreenAI() {
         .dr-tab:hover{border-color:#00BFFF!important;color:#00BFFF!important}
         .dr-cta:hover{filter:brightness(1.18)!important;transform:translateY(-1px)!important}
         .dr-outline:hover{border-color:#00BFFF!important;color:#E2EDF8!important}
+        .dr-results-grid{display:grid;grid-template-columns:minmax(250px,1fr) minmax(270px,1.15fr);gap:22px;align-items:start;}
+        .dr-processing-grid{display:grid;grid-template-columns:minmax(250px,1fr) minmax(250px,1.1fr);gap:28px;}
+        @media (max-width: 768px) {
+          .dr-results-grid{grid-template-columns:1fr!important;}
+          .dr-processing-grid{grid-template-columns:1fr!important;}
+        }
       `}</style>
 
       {/* ══ HEADER ══ */}
@@ -313,7 +319,7 @@ export default function DRScreenAI() {
 
         {/* ══ PROCESSING ══ */}
         {stage==="processing"&&(
-          <div style={{display:"grid",gridTemplateColumns:"minmax(250px,1fr) minmax(250px,1.1fr)",gap:28,animation:"drFade .35s ease"}}>
+          <div className="dr-processing-grid" style={{animation:"drFade .35s ease"}}>
             <div>
               <div style={{fontSize:10,color:C.sub,textTransform:"uppercase",letterSpacing:"1px",marginBottom:10}}>Input Fundus Image</div>
               <div style={{borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`,aspectRatio:"1",background:"#000",position:"relative"}}>
@@ -376,7 +382,7 @@ export default function DRScreenAI() {
                 <button className="dr-outline" onClick={reset} style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.sub,cursor:"pointer",fontSize:11,fontFamily:"'Inter'"}}>← New Scan</button>
               </div>
 
-              <div style={{display:"grid",gridTemplateColumns:"minmax(250px,1fr) minmax(270px,1.15fr)",gap:22,alignItems:"start"}}>
+              <div className="dr-results-grid">
                 {/* LEFT: Image viewer */}
                 <div>
                   <div style={{display:"flex",gap:4,marginBottom:10}}>
