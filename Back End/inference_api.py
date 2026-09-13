@@ -564,84 +564,104 @@ def frangi_vesselness(
         cv2.COLOR_RGB2BGR
     )
     
-    # The green channel holds the highest native contrast for retinal features.
     green = bgr_img[:, :, 1]
     fov_mask = create_fov_mask(img_rgb)
+    
+    # Erode the FOV strictly for morphology to prevent tracing the camera boundary
+    fov_strict = cv2.erode(
+        fov_mask, 
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11)), 
+        iterations=2
+    )
 
     # ─────────────────────────────────────────────────────────
-    # 1. EXUDATES (Yellow) - Morphological Top-Hat
-    # Extracts bright regions smaller than the kernel.
+    # 1. EXUDATES (Yellow) - Top-Hat Filter
+    # Extracts bright lesions safely from the local background.
     # ─────────────────────────────────────────────────────────
-    kernel_ex = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    kernel_ex = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21))
     tophat = cv2.morphologyEx(green, cv2.MORPH_TOPHAT, kernel_ex)
-    _, exudates_mask = cv2.threshold(tophat, 25, 255, cv2.THRESH_BINARY)
+    _, exudates_mask = cv2.threshold(tophat, 35, 255, cv2.THRESH_BINARY)
     
-    # Clean up single-pixel noise
+    # Remove single-pixel noise
     exudates_mask = cv2.morphologyEx(
         exudates_mask, 
         cv2.MORPH_OPEN, 
         cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     )
-    exudates_mask = cv2.bitwise_and(exudates_mask, fov_mask)
+    exudates_mask = cv2.bitwise_and(exudates_mask, fov_strict)
 
     # ─────────────────────────────────────────────────────────
-    # 2. VESSELS (Cyan) - Frangi Filter
+    # 2. HAEMORRHAGES (Pink) - Black-Hat Filter
+    # Extracts dark lesions safely from the local background.
     # ─────────────────────────────────────────────────────────
-    green_denoised = isolate_and_denoise_green_channel(bgr_img)
+    kernel_hm = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
+    blackhat = cv2.morphologyEx(green, cv2.MORPH_BLACKHAT, kernel_hm)
+    _, haem_mask = cv2.threshold(blackhat, 25, 255, cv2.THRESH_BINARY)
+    
+    # Morphological Opening removes thin blood vessels from the haemorrhage mask
+    haem_mask = cv2.morphologyEx(
+        haem_mask, 
+        cv2.MORPH_OPEN, 
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    )
+    haem_mask = cv2.bitwise_and(haem_mask, fov_strict)
+    
+    # Force zero overlap with exudates
+    haem_mask = cv2.bitwise_and(
+        haem_mask, 
+        cv2.bitwise_not(cv2.dilate(exudates_mask, np.ones((5, 5))))
+    )
+
+    # ─────────────────────────────────────────────────────────
+    # 3. VESSELS (Cyan) - Exudate-Suppressed Frangi
+    # ─────────────────────────────────────────────────────────
+    # CRITICAL FIX: Bright exudates trick the Frangi filter into tracing their borders. 
+    # Morphological Opening erases bright spots, leaving only dark vessels behind.
+    green_no_exudates = cv2.morphologyEx(
+        green, 
+        cv2.MORPH_OPEN, 
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    )
+    
+    # Pass the clean, exudate-free green channel into the standard vessel pipeline
+    fake_bgr = cv2.merge([green_no_exudates, green_no_exudates, green_no_exudates])
+    green_denoised = isolate_and_denoise_green_channel(fake_bgr)
     normalized_img = illumination_normalization(green_denoised)
     enhanced_gray = apply_vessel_clahe(normalized_img, clip_limit=2.0)
 
     (
-        vesselness_norm,
+        _,
         vessel_mask,
         vessel_density
     ) = compute_frangi_vesselness(
         enhanced_gray,
-        fov_mask
+        fov_strict
     )
-
-    # FIX: Frangi mistakenly traces the sharp edges of exudates as vessels.
-    # We dilate the exudate mask slightly and erase those areas from the vessel mask.
-    ex_dilated = cv2.dilate(exudates_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
-    vessel_mask = cv2.bitwise_and(vessel_mask, cv2.bitwise_not(ex_dilated))
-
-    # ─────────────────────────────────────────────────────────
-    # 3. HAEMORRHAGES (Pink) - Local Background Subtraction
-    # Extracts areas significantly darker than their immediate surroundings.
-    # ─────────────────────────────────────────────────────────
-    bg_blur = cv2.medianBlur(green, 61)
-    dark_diff = cv2.subtract(bg_blur, green)
-    _, haem_mask = cv2.threshold(dark_diff, 20, 255, cv2.THRESH_BINARY)
-
-    # Clean up and ensure haemorrhages don't overlap with detected vessels or exudates
-    haem_mask = cv2.morphologyEx(
-        haem_mask, 
-        cv2.MORPH_OPEN, 
-        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    
+    # Clean up vessel mask overlap
+    pathology_mask = cv2.bitwise_or(
+        cv2.dilate(exudates_mask, np.ones((5, 5))), 
+        haem_mask
     )
-    haem_mask = cv2.bitwise_and(haem_mask, cv2.bitwise_not(cv2.dilate(vessel_mask, np.ones((3,3)))))
-    haem_mask = cv2.bitwise_and(haem_mask, cv2.bitwise_not(exudates_mask))
-    haem_mask = cv2.bitwise_and(haem_mask, fov_mask)
+    vessel_mask = cv2.bitwise_and(vessel_mask, cv2.bitwise_not(pathology_mask))
 
     # ─────────────────────────────────────────────────────────
     # 4. VISUAL COMPOSITE
     # ─────────────────────────────────────────────────────────
-    # Create a punchy, high-contrast grayscale background instead of the flat normalized math-image
-    clahe_bg = cv2.createCLAHE(clipLimit=3.5, tileGridSize=(8, 8))
+    clahe_bg = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     visual_bg = clahe_bg.apply(green)
     
     base_rgb = cv2.cvtColor(visual_bg, cv2.COLOR_GRAY2RGB)
     base_rgb[fov_mask == 0] = 0
     composite = base_rgb.astype(np.float32)
 
-    # Colors
     cyan = np.array([35, 205, 225], dtype=np.float32)
     yellow = np.array([255, 255, 0], dtype=np.float32)
     pink = np.array([255, 20, 147], dtype=np.float32)
 
     alpha = 0.85
 
-    # Apply Overlays sequentially
+    # Apply Overlays
     composite[vessel_mask > 0] = composite[vessel_mask > 0] * (1.0 - alpha) + cyan * alpha
     composite[haem_mask > 0] = composite[haem_mask > 0] * (1.0 - alpha) + pink * alpha
     composite[exudates_mask > 0] = composite[exudates_mask > 0] * (1.0 - alpha) + yellow * alpha
@@ -655,8 +675,7 @@ def frangi_vesselness(
     return (
         composite,
         vessel_density
-    )
-# ─────────────────────────── Routes ───────────────────────────
+    )# ─────────────────────────── Routes ───────────────────────────
 
 @app.get("/health")
 async def health():
