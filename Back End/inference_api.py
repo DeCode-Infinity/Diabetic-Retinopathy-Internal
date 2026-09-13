@@ -84,27 +84,40 @@ def frangi_vesselness(img_rgb: np.ndarray) -> np.ndarray:
     """Real Frangi vesselness filter (classical image processing, not a
     trained model) — highlights tubular/vessel-like structures on the
     green channel, then composites them as a cyan overlay on top of the
-    grayscale fundus image. Pure computer vision: Frangi filter +
-    percentile normalization + thresholding + alpha blending — no
-    trained model involved. Full lesion/optic-disc segmentation is a
-    planned Phase 2 item (that requires a trained model)."""
-    green = img_rgb[:, :, 1].astype(np.float64) / 255.0
-    inverted = 1.0 - green
-    vesselness = frangi(inverted, sigmas=range(1, 4), black_ridges=False)
+    grayscale fundus image. Pure computer vision: Gaussian denoising +
+    Frangi filter + percentile normalization + binarization + connected-
+    component noise removal + alpha blending — no trained model involved.
+    Full lesion/optic-disc segmentation is a planned Phase 2 item (that
+    requires a trained model)."""
+    green = img_rgb[:, :, 1].astype(np.uint8)
+    green_blurred = cv2.GaussianBlur(green, (3, 3), 0)
+    green_norm = green_blurred.astype(np.float64) / 255.0
+    inverted = 1.0 - green_norm
 
-    # Percentile-based normalization (robust to outliers)
-    lo, hi = np.percentile(vesselness, [1, 99])
-    v_clipped = np.clip(vesselness, lo, hi)
-    v_norm = (v_clipped - lo) / (hi - lo + 1e-8)
+    vesselness = frangi(inverted, sigmas=np.arange(1, 5, 1), black_ridges=False)
 
-    # Threshold out background noise — only strong vessel responses remain,
-    # then rescale the remaining range so real vessels are clearly visible
-    thresh = 0.35
-    alpha = np.clip((v_norm - thresh) / (1 - thresh), 0, 1)
-    alpha = np.power(alpha, 0.6)  # slight boost so thinner vessels show up
+    lo, hi = np.percentile(vesselness, [50, 99.5])
+    v_norm = np.clip((vesselness - lo) / (hi - lo + 1e-8), 0, 1)
 
-    # Grayscale background (same image, desaturated) — matches the
-    # reference: cyan vessels over a grayscale fundus, not a full heatmap
+    # Binarize, then remove salt-and-pepper noise: morphological opening
+    # first, then drop any remaining connected blob smaller than a real
+    # vessel segment (pure noise specks are 1-a-few pixels; real vessel
+    # fragments are longer/wider)
+    mask = (v_norm > 0.45).astype(np.uint8)
+    kernel = np.ones((2, 2), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    min_component_size = 15  # pixels — drops isolated noise, keeps vessel fragments
+    cleaned = np.zeros_like(mask)
+    for lbl in range(1, num_labels):
+        if stats[lbl, cv2.CC_STAT_AREA] >= min_component_size:
+            cleaned[labels == lbl] = 1
+
+    # Soften edges slightly so vessels don't look hard-pixelated
+    alpha = cv2.GaussianBlur(cleaned.astype(np.float64), (3, 3), 0)
+    alpha = np.clip(alpha, 0, 1)
+
     gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY).astype(np.float64)
     gray_rgb = np.stack([gray, gray, gray], axis=-1)
 
