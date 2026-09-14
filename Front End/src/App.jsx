@@ -284,7 +284,12 @@ export default function DRScreenAI() {
   },[]);
 
   // Tokens
-  const C={ bg:"#020B18", surface:"#071525", card:"#0C2040", border:"#143058", accent:"#00BFFF", text:"#E2EDF8", sub:"#6A8FAE", muted:"#2E5070" };
+  const [theme, setTheme] = useState("dark");
+  const THEMES = {
+    dark:  { bg:"#020B18", surface:"#071525", card:"#0C2040", border:"#143058", accent:"#00BFFF", text:"#E2EDF8", sub:"#6A8FAE", muted:"#2E5070" },
+    light: { bg:"#F4F8FC", surface:"#FFFFFF", card:"#FFFFFF", border:"#D7E3EF", accent:"#0077B6", text:"#0B1D2E", sub:"#5A7690", muted:"#8FA7BC" },
+  };
+  const C = THEMES[theme];
 
   return (
     <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:C.bg,minHeight:"100vh",color:C.text}}>
@@ -328,6 +333,15 @@ export default function DRScreenAI() {
             <div style={{width:5,height:5,borderRadius:"50%",background:"#22C55E",boxShadow:"0 0 7px #22C55E",animation:"drPulse 2s ease infinite"}}/>
             <span style={{fontSize:10,color:C.sub}}>System Online</span>
           </div>
+          <button
+            onClick={()=>setTheme(t=>t==="dark"?"light":"dark")}
+            aria-label="Toggle theme"
+            style={{width:34,height:20,borderRadius:10,border:`1px solid ${C.border}`,background:theme==="dark"?"#0C2040":"#DCE9F5",cursor:"pointer",position:"relative",padding:0,transition:"background .2s ease"}}
+          >
+            <div style={{position:"absolute",top:1,left:theme==="dark"?1:15,width:16,height:16,borderRadius:"50%",background:theme==="dark"?C.accent:"#F5A623",transition:"left .2s ease",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9}}>
+              {theme==="dark"?"🌙":"☀️"}
+            </div>
+          </button>
         </div>
       </header>
 
